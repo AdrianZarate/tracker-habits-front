@@ -20,10 +20,16 @@ apiClient.interceptors.request.use(
 );
 
 // Interceptor de RESPONSE — redirige al login si el token expira (401)
+// Excluye rutas de autenticación para no hacer redirect en credenciales incorrectas
+const AUTH_ROUTES = ['/auth/login', '/auth/register'];
+
 apiClient.interceptors.response.use(
   (response) => response,
   (error) => {
-    if (error.response?.status === 401) {
+    const requestUrl: string = error.config?.url ?? '';
+    const isAuthRoute = AUTH_ROUTES.some((route) => requestUrl.includes(route));
+
+    if (error.response?.status === 401 && !isAuthRoute) {
       localStorage.removeItem('token');
       window.location.href = '/login';
     }

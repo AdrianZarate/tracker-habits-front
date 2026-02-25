@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import type { FormEvent } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
+import { Eye, EyeOff } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 
 export default function Login() {
@@ -9,6 +10,7 @@ export default function Login() {
 
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
 
@@ -19,8 +21,18 @@ export default function Login() {
     try {
       await login({ email, password });
       navigate('/dashboard');
-    } catch {
-      setError('Credenciales incorrectas. Intenta de nuevo.');
+    } catch (err: unknown) {
+      const message =
+        (err as { response?: { data?: { message?: string } } })?.response?.data
+          ?.message ?? 'Credenciales incorrectas. Intenta de nuevo.';
+      // El backend devuelve el mensaje en inglés, lo traducimos
+      if (message.toLowerCase().includes('email')) {
+        setError('El correo no está registrado.');
+      } else if (message.toLowerCase().includes('password')) {
+        setError('Contraseña incorrecta.');
+      } else {
+        setError('Credenciales incorrectas. Intenta de nuevo.');
+      }
     } finally {
       setIsLoading(false);
     }
@@ -51,14 +63,24 @@ export default function Login() {
             <label className='mb-1 block text-sm text-dark-muted'>
               Contraseña
             </label>
-            <input
-              type='password'
-              required
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              className='w-full rounded-lg bg-dark-bg px-4 py-2.5 text-dark-text outline-none ring-1 ring-dark-muted focus:ring-primary'
-              placeholder='••••••••'
-            />
+            <div className='relative'>
+              <input
+                type={showPassword ? 'text' : 'password'}
+                required
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                className='w-full rounded-lg bg-dark-bg px-4 py-2.5 pr-11 text-dark-text outline-none ring-1 ring-dark-muted focus:ring-primary'
+                placeholder='••••••••'
+              />
+              <button
+                type='button'
+                onClick={() => setShowPassword((v) => !v)}
+                className='absolute right-3 top-1/2 -translate-y-1/2 text-dark-muted hover:text-dark-text transition'
+                tabIndex={-1}
+              >
+                {showPassword ? <EyeOff size={17} /> : <Eye size={17} />}
+              </button>
+            </div>
           </div>
 
           {error && <p className='text-sm text-red-400'>{error}</p>}
