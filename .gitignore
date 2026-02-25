@@ -12,6 +12,7 @@ dist
 dist-ssr
 *.local
 .env
+# .env.production se commitea para que Netlify lo use en el build
 
 # Editor directories and files
 .vscode/*

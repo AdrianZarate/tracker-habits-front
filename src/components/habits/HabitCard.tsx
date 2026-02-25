@@ -20,14 +20,9 @@ export default function HabitCard({ habit, onLog }: HabitCardProps) {
         className='flex flex-col text-left'
       >
         <span className='font-medium text-dark-text'>{habit.title}</span>
-        {habit.description && (
-          <span className='text-xs text-dark-muted line-clamp-1'>
-            {habit.description}
-          </span>
+        {habit.slug && (
+          <span className='text-xs text-dark-muted'>/{habit.slug}</span>
         )}
-        <span className='mt-1 inline-block rounded-full bg-primary/10 px-2 py-0.5 text-xs capitalize text-primary'>
-          {habit.frequency}
-        </span>
       </button>
 
       {/* Acción */}
