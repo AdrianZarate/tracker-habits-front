@@ -85,7 +85,16 @@ export default function Dashboard() {
         {/* Saludo */}
         <div className='mx-auto mb-6 max-w-2xl'>
           <h1 className='text-2xl font-bold text-dark-text'>
-            Bienvenido, {user?.fullName} 👋
+            {(() => {
+              const hour = new Date().getHours();
+              const greeting =
+                hour < 12
+                  ? 'Buenos días'
+                  : hour < 18
+                    ? 'Buenas tardes'
+                    : 'Buenas noches';
+              return `${greeting} 👋`;
+            })()}
           </h1>
           <p className='text-sm text-dark-muted'>
             Estos son tus hábitos diarios
