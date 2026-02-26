@@ -1,17 +1,18 @@
 import { useEffect, useState } from 'react';
 import { Plus } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
-import { getHabits, completeHabit, incompleteHabit } from '../api/habits.api';
+import {
+  getHabits,
+  getUserLogs,
+  completeHabit,
+  incompleteHabit,
+} from '../api/habits.api';
 import type { Habit } from '../api/habits.api';
 import Navbar from '../components/layout/Navbar';
 import HabitList from '../components/habits/HabitList';
 import CreateHabitForm from '../components/habits/CreateHabitForm';
 import Spinner from '../components/ui/Spinner';
-import {
-  getCompletedToday,
-  markCompleted,
-  markIncomplete,
-} from '../utils/dailyCompletions';
+import { markCompleted, markIncomplete } from '../utils/dailyCompletions';
 
 export default function Dashboard() {
   const { user } = useAuth();
@@ -23,14 +24,25 @@ export default function Dashboard() {
 
   const fetchHabits = () => {
     setIsLoading(true);
-    getHabits()
-      .then(({ data }) => {
-        const completedSet = getCompletedToday();
-        // Fusiona el estado local de completados con los hábitos del backend
-        const enriched = data.map((h) => ({
-          ...h,
-          completedToday: completedSet.has(h.habitId),
-        }));
+    const today = new Date().toISOString().split('T')[0];
+
+    // Una sola petición trae todos los logs del usuario de hoy
+    Promise.all([getHabits(), getUserLogs()])
+      .then(([{ data: habits }, { data: logs }]) => {
+        // Set de habitIds completados HOY
+        const completedIds = new Set(
+          logs
+            .filter((l) => l.date.startsWith(today) && l.completed)
+            .map((l) => l.habitId),
+        );
+
+        const enriched = habits.map((h) => {
+          const done = completedIds.has(h.habitId);
+          if (done) markCompleted(h.habitId);
+          else markIncomplete(h.habitId);
+          return { ...h, completedToday: done };
+        });
+
         setHabits(enriched);
       })
       .catch(() => setError('No se pudieron cargar los hábitos.'))

@@ -68,6 +68,18 @@ export interface IncompleteResponse {
 export const incompleteHabit = (habitId: string) =>
   apiClient.delete<IncompleteResponse>(`/habits/${habitId}/incomplete`);
 
+export interface UserLog {
+  _id: string;
+  habitId: string;
+  date: string;
+  completed: boolean;
+  title: string;
+  slug: string;
+}
+
+/** Obtiene todos los logs del usuario autenticado (incluye title y slug) */
+export const getUserLogs = () => apiClient.get<UserLog[]>('/habits/logs');
+
 /** Marca un hábito como completado */
 export const completeHabit = (habitId: string) =>
   apiClient.post<HabitLog>(`/habits/${habitId}/complete`);
