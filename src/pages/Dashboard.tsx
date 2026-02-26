@@ -1,6 +1,5 @@
 import { useEffect, useState } from 'react';
 import { Plus } from 'lucide-react';
-import { useAuth } from '../context/AuthContext';
 import {
   getHabits,
   getUserLogs,
@@ -15,8 +14,6 @@ import Spinner from '../components/ui/Spinner';
 import { markCompleted, markIncomplete } from '../utils/dailyCompletions';
 
 export default function Dashboard() {
-  const { user } = useAuth();
-
   const [habits, setHabits] = useState<Habit[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
