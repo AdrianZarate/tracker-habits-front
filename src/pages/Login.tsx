@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import type { FormEvent } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { Eye, EyeOff } from 'lucide-react';
@@ -13,6 +13,20 @@ export default function Login() {
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
+  const [slowLoading, setSlowLoading] = useState(false);
+  const slowTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    if (isLoading) {
+      slowTimer.current = setTimeout(() => setSlowLoading(true), 3000);
+    } else {
+      if (slowTimer.current) clearTimeout(slowTimer.current);
+      setSlowLoading(false);
+    }
+    return () => {
+      if (slowTimer.current) clearTimeout(slowTimer.current);
+    };
+  }, [isLoading]);
 
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
@@ -22,16 +36,22 @@ export default function Login() {
       await login({ email, password });
       navigate('/dashboard');
     } catch (err: unknown) {
-      const message =
-        (err as { response?: { data?: { message?: string } } })?.response?.data
-          ?.message ?? 'Credenciales incorrectas. Intenta de nuevo.';
-      // El backend devuelve el mensaje en inglés, lo traducimos
-      if (message.toLowerCase().includes('email')) {
-        setError('El correo no está registrado.');
-      } else if (message.toLowerCase().includes('password')) {
-        setError('Contraseña incorrecta.');
+      const code = (err as { code?: string })?.code;
+      if (code === 'ECONNABORTED' || code === 'ERR_NETWORK') {
+        setError(
+          'El servidor está iniciando, espera unos segundos e intenta de nuevo.',
+        );
       } else {
-        setError('Credenciales incorrectas. Intenta de nuevo.');
+        const message =
+          (err as { response?: { data?: { message?: string } } })?.response
+            ?.data?.message ?? 'Credenciales incorrectas. Intenta de nuevo.';
+        if (message.toLowerCase().includes('email')) {
+          setError('El correo no está registrado.');
+        } else if (message.toLowerCase().includes('password')) {
+          setError('Contraseña incorrecta.');
+        } else {
+          setError('Credenciales incorrectas. Intenta de nuevo.');
+        }
       }
     } finally {
       setIsLoading(false);
@@ -84,6 +104,12 @@ export default function Login() {
           </div>
 
           {error && <p className='text-sm text-red-400'>{error}</p>}
+
+          {isLoading && slowLoading && (
+            <p className='text-center text-xs text-dark-muted animate-pulse'>
+              El servidor está iniciando, puede tardar unos segundos...
+            </p>
+          )}
 
           <button
             type='submit'
