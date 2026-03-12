@@ -21,8 +21,8 @@ apiClient.interceptors.request.use(
 );
 
 // Interceptor de RESPONSE — redirige al login si el token expira (401)
-// Excluye rutas de autenticación para no hacer redirect en credenciales incorrectas
-const AUTH_ROUTES = ['/auth/login', '/auth/register'];
+// Excluye la ruta de autenticación para no hacer redirect en errores de login
+const AUTH_ROUTES = ['/auth/google'];
 
 apiClient.interceptors.response.use(
   (response) => response,

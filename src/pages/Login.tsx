@@ -1,57 +1,42 @@
-import { useState, useEffect, useRef } from 'react';
-import type { FormEvent } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
-import { Eye, EyeOff } from 'lucide-react';
+import { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
+import { GoogleLogin } from '@react-oauth/google';
 import { useAuth } from '../context/AuthContext';
 
 export default function Login() {
-  const { login } = useAuth();
+  const { loginWithGoogle } = useAuth();
   const navigate = useNavigate();
 
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
-  const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
-  const [slowLoading, setSlowLoading] = useState(false);
-  const slowTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  useEffect(() => {
-    if (isLoading) {
-      slowTimer.current = setTimeout(() => setSlowLoading(true), 3000);
-    } else {
-      if (slowTimer.current) clearTimeout(slowTimer.current);
-      setSlowLoading(false);
-    }
-    return () => {
-      if (slowTimer.current) clearTimeout(slowTimer.current);
-    };
-  }, [isLoading]);
-
-  const handleSubmit = async (e: FormEvent) => {
-    e.preventDefault();
-    setError(null);
+  const handleSuccess = async (credential: string) => {
     setIsLoading(true);
+    setError(null);
     try {
-      await login({ email, password });
+      await loginWithGoogle(credential);
       navigate('/dashboard');
     } catch (err: unknown) {
-      const code = (err as { code?: string })?.code;
-      if (code === 'ECONNABORTED' || code === 'ERR_NETWORK') {
+      const axiosError = err as {
+        code?: string;
+        response?: { data?: { message?: string }; status?: number };
+      };
+      console.error(
+        '[Login] Error al iniciar sesión:',
+        axiosError.response ?? err,
+      );
+      if (
+        axiosError.code === 'ECONNABORTED' ||
+        axiosError.code === 'ERR_NETWORK'
+      ) {
         setError(
           'El servidor está iniciando, espera unos segundos e intenta de nuevo.',
         );
       } else {
-        const message =
-          (err as { response?: { data?: { message?: string } } })?.response
-            ?.data?.message ?? 'Credenciales incorrectas. Intenta de nuevo.';
-        if (message.toLowerCase().includes('email')) {
-          setError('El correo no está registrado.');
-        } else if (message.toLowerCase().includes('password')) {
-          setError('Contraseña incorrecta.');
-        } else {
-          setError('Credenciales incorrectas. Intenta de nuevo.');
-        }
+        setError(
+          axiosError.response?.data?.message ??
+            'No se pudo iniciar sesión. Intenta de nuevo.',
+        );
       }
     } finally {
       setIsLoading(false);
@@ -60,72 +45,35 @@ export default function Login() {
 
   return (
     <div className='flex min-h-screen items-center justify-center bg-dark-bg px-4'>
-      <div className='w-full max-w-md rounded-2xl bg-dark-card p-8 shadow-lg'>
+      <div className='w-full max-w-md rounded-2xl bg-dark-card p-8 shadow-lg text-center'>
         <h1 className='mb-2 text-2xl font-bold text-dark-text'>
           Iniciar sesión
         </h1>
-        <p className='mb-6 text-sm text-dark-muted'>Bienvenido de nuevo 👋</p>
+        <p className='mb-8 text-sm text-dark-muted'>Bienvenido de nuevo 👋</p>
 
-        <form onSubmit={handleSubmit} className='space-y-4'>
-          <div>
-            <label className='mb-1 block text-sm text-dark-muted'>Email</label>
-            <input
-              type='email'
-              required
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              className='w-full rounded-lg bg-dark-bg px-4 py-2.5 text-dark-text outline-none ring-1 ring-dark-muted focus:ring-primary'
-              placeholder='tu@email.com'
+        {error && <p className='mb-4 text-sm text-red-400'>{error}</p>}
+
+        {isLoading ? (
+          <p className='text-sm text-dark-muted animate-pulse'>Ingresando...</p>
+        ) : (
+          <div className='flex justify-center'>
+            <GoogleLogin
+              onSuccess={({ credential }) => {
+                if (!credential) {
+                  setError('No se recibió credencial de Google.');
+                  return;
+                }
+                handleSuccess(credential);
+              }}
+              onError={() => setError('Error al autenticar con Google.')}
+              theme='filled_black'
+              size='large'
+              shape='rectangular'
+              text='signin_with'
+              useOneTap={false}
             />
           </div>
-
-          <div>
-            <label className='mb-1 block text-sm text-dark-muted'>
-              Contraseña
-            </label>
-            <div className='relative'>
-              <input
-                type={showPassword ? 'text' : 'password'}
-                required
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                className='w-full rounded-lg bg-dark-bg px-4 py-2.5 pr-11 text-dark-text outline-none ring-1 ring-dark-muted focus:ring-primary'
-                placeholder='••••••••'
-              />
-              <button
-                type='button'
-                onClick={() => setShowPassword((v) => !v)}
-                className='absolute right-3 top-1/2 -translate-y-1/2 text-dark-muted hover:text-dark-text transition'
-                tabIndex={-1}
-              >
-                {showPassword ? <EyeOff size={17} /> : <Eye size={17} />}
-              </button>
-            </div>
-          </div>
-
-          {error && <p className='text-sm text-red-400'>{error}</p>}
-
-          {isLoading && slowLoading && (
-            <p className='text-center text-xs text-dark-muted animate-pulse'>
-              El servidor está iniciando, puede tardar unos segundos...
-            </p>
-          )}
-
-          <button
-            type='submit'
-            disabled={isLoading}
-            className='w-full rounded-lg bg-primary py-2.5 font-semibold text-white transition hover:bg-primary-hover disabled:opacity-50'
-          >
-            {isLoading ? 'Ingresando...' : 'Ingresar'}
-          </button>
-        </form>
-
-        <p className='mt-6 text-center text-sm text-dark-muted'>
-          ¿No tienes cuenta?{' '}
-          <Link to='/register' className='text-primary hover:underline'>
-            Regístrate
-          </Link>
-        </p>
+        )}
       </div>
     </div>
   );
