@@ -22,7 +22,7 @@ Los hábitos antiguos funcionan con la misma casilla, aunque tengan cantidades u
 
 ## Alcance
 
-La simplificación está completa: nombre, casilla de hoy, historial y ocultar/restaurar. Se retiraron los paneles y la lógica avanzada del frontend, con 768 líneas netas menos de código. La API conserva compatibilidad para los datos anteriores.
+La simplificación está completa: nombre, casilla de hoy, historial y ocultar/restaurar. Ese recorte retiró 768 líneas netas del núcleo; el pulido visual mantiene las mismas funciones. La API conserva compatibilidad para los datos anteriores.
 
 ## Verificación y límites
 
@@ -30,4 +30,12 @@ La simplificación está completa: nombre, casilla de hoy, historial y ocultar/r
 - Frontend: 126 pruebas de comportamiento y 8 de presentación aprobadas con API sintética. Las de presentación comprueban áreas de 44 px, foco, contraste, estados y ausencia de desbordamiento a 375/320 px; capturan cuatro imágenes fuera del repositorio. TypeScript, lint y bundle en memoria del núcleo aprobados de forma independiente. No se leyeron archivos de entorno ni se añadieron dependencias.
 - Pendiente: revisión visual manual, integración con MongoDB/Google reales y build generado de Nest. Las pruebas de navegador usan una API sintética.
 
-La evidencia y los commits están en el [registro de simplificación](../odd/tasks/minimalist-core.md).
+La evidencia y los commits están en los registros de [simplificación](../odd/tasks/minimalist-core.md) y [pulido visual](../odd/tasks/minimalist-ui-polish.md).
+
+## Datos de compatibilidad de navegadores
+
+El aviso de `caniuse-lite` antiguo era una advertencia, no un fallo de la aplicación. Se actualizaron sólo los datos de navegadores y el aviso desapareció, sin cambiar las dependencias declaradas. Con pnpm 12, la actualización puntual sin scripts es:
+
+```sh
+pnpm up --no-save --ignore-scripts caniuse-lite baseline-browser-mapping
+```
