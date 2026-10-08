@@ -17,8 +17,22 @@ pnpm dev
 
 Open the local URL printed by Vite. The landing is public; live sign-in and habit
 data require the backend. Set `VITE_API_URL` in your local Vite environment to
-the backend's base URL. Google sign-in requires an authorized Google account and
-OAuth origin configuration. Never commit credentials or local environment files.
+the backend's base URL (default `http://localhost:3000`; match any explicit API
+`PORT`). Google sign-in requires an authorized Google account and OAuth origin
+configuration. Never commit credentials or local environment files.
+
+## Reliable daily tracking
+
+The browser detects an IANA timezone at Google login; the API persists the first
+account assignment. Later devices do not silently change it. Today follows that
+account zone, including daylight-saving boundaries; historical date labels are
+never shifted. Missing legacy zones fall back to UTC until assigned.
+
+Habit details load directly from their protected URLs and offer retry after
+recoverable loading failures. Inactive owned habits retain readable history.
+Session expiry and logout clear the stored profile and daily completion cache.
+See [calendar and session behavior](docs/calendar-session.md),
+[detail loading](docs/habit-details.md), and the [API guide](../api/README.md).
 
 ## Package management and script policy
 
@@ -47,11 +61,15 @@ pnpm preview
 ```
 
 Build emits `dist/`; preview serves that production build locally. Build and lint
-pass with install scripts disabled. Seven external browser regressions also pass:
-three landing/navigation tests and four mocked session/dashboard tests.
+pass with install scripts disabled. The browser suite has 30 synthetic cases:
+three landing/navigation, four session/dashboard, nine calendar/session and
+fourteen detail regressions.
 
 There is no repository test runner or new Playwright dependency. Browser checks
 use an existing external Playwright/browser harness, local Vite on port 4173,
 and reports outside this repository. They block real OAuth/API traffic and do
 not verify live Google sign-in or backend persistence. See
-[landing and browser verification](docs/public-landing.md) for coverage and setup.
+[landing and browser verification](docs/public-landing.md) for the original harness
+setup, plus the calendar/session and detail guides above for Stage 2 coverage.
+The current session used an external `habit-tracker-core-regression` harness;
+its temporary path is not a portable repository test command.
