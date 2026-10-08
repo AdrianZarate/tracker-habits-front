@@ -40,9 +40,20 @@ export interface GetLogsParams {
   endDate?: string;
 }
 
-/** Obtiene el historial de logs de un hábito */
-export const getHabitLogs = (habitId: string, params?: GetLogsParams) =>
-  apiClient.get<HabitLog[]>(`/habits/${habitId}/logs`, { params });
+export interface HabitDetail {
+  habitId: string;
+  title: string;
+  slug: string;
+  active: boolean;
+}
+
+/** Detalle autoritativo de la asociación del usuario, incluso si está inactiva. */
+export const getHabitById = (habitId: string, signal?: AbortSignal) =>
+  apiClient.get<HabitDetail>(`/habits/${habitId}`, { signal });
+
+/** Sin fechas explícitas, la API usa el mes actual de la cuenta. */
+export const getHabitLogs = (habitId: string, params?: GetLogsParams, signal?: AbortSignal) =>
+  apiClient.get<HabitLog[]>(`/habits/${habitId}/logs`, { params, signal });
 
 export interface CreateHabitResponse {
   _id: string;
