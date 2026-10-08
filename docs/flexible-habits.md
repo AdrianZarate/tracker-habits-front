@@ -1,6 +1,6 @@
-# Configurar tus hábitos personales
+# Configurar y registrar tus hábitos personales
 
-Puedes crear y editar el título, categoría, color, icono, frecuencia y objetivo de tus propios hábitos. Los cambios no afectan a otras personas ni recalculan los objetivos del historial.
+Puedes crear y editar tus hábitos, registrar la cantidad de hoy desde su detalle y consultar siete días con sus objetivos originales. Los cambios no afectan a otras personas ni recalculan la finalización guardada del historial.
 
 ## Crear o editar
 
@@ -31,21 +31,39 @@ La cantidad se aplica **por día registrado**, no como suma semanal. Por ejemplo
 - Editar sólo metadatos no envía una configuración ni crea una revisión de objetivos. Guardar sin cambios no realiza un PATCH.
 - Después de guardar se recarga el detalle. Si esa recarga falla, el historial permanece visible y **Reintentar actualización** permite recuperarse sin volver a guardar.
 
-## Límites de esta entrega (T5)
+## Registrar la cantidad de hoy (T6a)
 
-Puedes configurar objetivos cuantitativos, pero el atajo de completado queda deshabilitado para ellos hasta implementar su registro en T6. Los objetivos binarios conservan el completado sin cuerpo de solicitud. Una configuración cuantitativa pendiente no bloquea el objetivo binario actual, ni una binaria pendiente habilita el cuantitativo actual.
+1. Abre el **detalle** del hábito. El atajo cuantitativo del dashboard sigue deshabilitado y te dirige al detalle.
+2. En **Progreso de hoy**, revisa la fecha del calendario de tu cuenta y el objetivo original.
+3. Introduce **Cantidad de hoy** y selecciona **Guardar cantidad**. El valor reemplaza el total anterior, no lo incrementa. Admite decimales y cero; debe ser finito, no negativo y como máximo 1 000 000 000.
 
-Esta entrega no añade controles de cantidades, notas, correcciones históricas, semanas, pausa, archivo o reapertura. Tampoco cambia estadísticas, recordatorios, autenticación, temas o dependencias.
+El registro guardado de hoy manda: su snapshot conserva objetivo, unidad y frecuencia originales. Sin snapshot se usa la configuración actual del detalle, nunca la pendiente. La finalización mostrada viene del registro, no de un cálculo del navegador. Si un registro antiguo no tiene cantidad, aparece **Cantidad no registrada** y el campo queda vacío: no se inventa un valor a partir del objetivo ni del booleano.
 
-El detalle se obtiene de la asociación autenticada antes de ofrecer la edición. Un hábito ajeno o inexistente muestra el mismo resultado de no encontrado, sin editor ni carga de su historial. La API sigue siendo la autoridad de propiedad y validación.
+Sólo un hábito activo permite registrar hoy. Para un registro nuevo, hoy debe ser un día seleccionado cuando la frecuencia usa días de la semana; un registro ya existente puede actualizarse aunque su día no esté seleccionado. Los objetivos binarios conservan el completado sin cuerpo de solicitud. Una configuración pendiente no cambia los controles de hoy.
+
+Después de guardar una cantidad se recargan los registros y la semana. Si falla la recarga de registros, **Reintentar registros** hace sólo una lectura; si falla la semana, **Reintentar semana** hace sólo una lectura semanal. Ninguno repite el POST ya guardado. Los errores ordinarios al guardar conservan el campo para corregirlo o reintentar.
+
+## Leer la semana
+
+El panel **Semana** selecciona hoy por defecto en la zona de la cuenta y muestra siete etiquetas de lunes a domingo, incluso sin registros. Cada día muestra su definición original, cantidad cuando existe y finalización guardada. Los días no programados se señalan sin borrar registros.
+
+El resumen cuenta **días completados**, nunca suma cantidades de unidades distintas. Si la fecha seleccionada tiene frecuencia semanal, **Cuota de la fecha seleccionada** muestra su cuota; no sustituye las metas de los demás días aunque hayan cambiado a mitad de semana. La fecha, las metas y el recuento vienen de la API. Un fallo semanal no oculta el historial o la definición ya cargados ni bloquea por sí mismo el registro de hoy.
+
+## Límites actuales
+
+T6a añade sólo cantidades de hoy y lectura semanal en el detalle. Notas y correcciones históricas quedan para T6b; filtros de listas, pausa, archivo y restauración para T6c. No hay selector de fecha semanal, edición de días pasados, controles cuantitativos del dashboard ni rediseño de estadísticas, recordatorios, autenticación, temas o dependencias.
+
+El detalle se obtiene de la asociación autenticada antes de ofrecer edición o cargar historial y semana. Un hábito ajeno o inexistente muestra el mismo resultado de no encontrado. Cambiar ruta, cuenta o día descarta las respuestas antiguas; la API sigue siendo la autoridad de propiedad y validación.
 
 ## Contrato y comprobación
 
 - Crear: `POST /habits`, con configuración completa.
 - Editar: `PATCH /habits/:habitId/definition`, con sólo los campos cambiados y una configuración completa únicamente cuando cambia.
 - Borrar metadatos opcionales: enviar `""`; omitir un campo conserva su valor.
+- Registrar hoy: `POST /habits/:habitId/complete`, con `{ "amount": número }` para cantidad y sin cuerpo para checkbox.
+- Semana: `GET /habits/:habitId/week` sin fecha explícita; devuelve siete días, snapshots originales, finalización guardada y cuota de la fecha seleccionada cuando corresponde.
 - Las respuestas tipadas exponen configuración actual y pendiente, no arrays de revisiones.
 
 Consulta el [contrato de la API](../../api/docs/personal-habits.md) para los detalles de fechas efectivas y objetivos históricos.
 
-Las pruebas en `tests/auth-dashboard.spec.cjs` y `tests/habit-details.spec.cjs` usan rutas sintéticas: payloads, validación, errores recuperables, propiedad, cambios pendientes, sesión, teclado y bloqueo cuantitativo. No verifican datos reales, MongoDB, concurrencia ni OAuth real.
+Las pruebas en `tests/auth-dashboard.spec.cjs` y `tests/habit-details.spec.cjs` usan rutas sintéticas: payloads, cero y valores inválidos, reemplazo de cantidades, snapshots frente a definición actual/pendiente, cantidades antiguas desconocidas, semanas vacías y cambios de unidad a mitad de semana, reintentos sin repetir mutaciones, actividad/días programados, propiedad, sesión, teclado y cambio de día en la zona de la cuenta. No verifican datos reales, MongoDB, concurrencia ni OAuth real.

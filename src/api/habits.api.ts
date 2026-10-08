@@ -64,6 +64,28 @@ export interface HabitLog {
   configurationSnapshot?: ConfigurationSnapshot;
 }
 
+export interface HabitWeekDay {
+  date: string;
+  scheduled: boolean;
+  completed: boolean;
+  amount?: number;
+  note?: string;
+  configurationSnapshot: ConfigurationSnapshot;
+}
+
+export interface HabitWeek {
+  habitId: string;
+  date: string;
+  weekStart: string;
+  weekEnd: string;
+  configuration: HabitConfiguration;
+  scheduledOnDate: boolean;
+  completedDays: number;
+  weeklyTarget?: number;
+  weeklyCompleted?: boolean;
+  days: HabitWeekDay[];
+}
+
 export interface CreateHabitPayload {
   title: string;
   category?: string;
@@ -105,6 +127,10 @@ export const getHabitById = (habitId: string, signal?: AbortSignal) =>
 export const getHabitLogs = (habitId: string, params?: GetLogsParams, signal?: AbortSignal) =>
   apiClient.get<HabitLog[]>(`/habits/${habitId}/logs`, { params, signal });
 
+/** Sin fecha explícita, selecciona hoy en el calendario de la cuenta. */
+export const getHabitWeek = (habitId: string, date?: string, signal?: AbortSignal) =>
+  apiClient.get<HabitWeek>(`/habits/${habitId}/week`, { params: date ? { date } : undefined, signal });
+
 export type CreateHabitResponse = HabitActiveResponse;
 
 /** Crea un nuevo hábito sin exponer el historial de revisiones. */
@@ -143,6 +169,6 @@ export interface UserLog {
 /** Obtiene todos los logs del usuario autenticado (incluye title y slug) */
 export const getUserLogs = () => apiClient.get<UserLog[]>('/habits/logs');
 
-/** Marca un hábito como completado */
-export const completeHabit = (habitId: string) =>
-  apiClient.post<HabitLog>(`/habits/${habitId}/complete`);
+/** Cantidad: reemplaza el total diario. Omitir amount conserva el checkbox sin cuerpo. */
+export const completeHabit = (habitId: string, amount?: number, signal?: AbortSignal) =>
+  apiClient.post<HabitLog>(`/habits/${habitId}/complete`, amount === undefined ? undefined : { amount }, { signal });

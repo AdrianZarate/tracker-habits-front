@@ -5,12 +5,28 @@ const { test: base, expect } = require(require.resolve('@playwright/test', {
 const origin = 'http://127.0.0.1:4173';
 const profile = { fullName: 'Detail user', email: 'detail@example.invalid', token: 'detail-token', timeZone: 'America/Los_Angeles', roles: ['user'] };
 const log = (day, id = day) => ({ _id: id, habitId: 'read', date: `${day}T00:00:00.000Z`, completed: true });
+const quantityGoal = (target = 20, unit = 'páginas', schedule = { kind: 'daily' }) => ({ schedule, goal: { kind: 'quantity', target, unit } });
+const snapshot = configuration => ({ configuration });
+function syntheticWeek(api) {
+  const configuration = api.habit.configuration ?? { schedule: { kind: 'daily' }, goal: { kind: 'checkbox' } };
+  const days = Array.from({ length: 7 }, (_, i) => {
+    const date = new Date(Date.UTC(2026, 2, 30 + i)).toISOString().slice(0, 10);
+    const entry = api.logs.find(l => l.date.slice(0, 10) === date);
+    return { date, scheduled: true, completed: entry?.completed ?? false,
+      ...(entry?.amount !== undefined ? { amount: entry.amount } : {}),
+      configurationSnapshot: entry?.configurationSnapshot ?? snapshot(configuration) };
+  });
+  return { habitId: api.habit.habitId, date: '2026-03-31', weekStart: '2026-03-30', weekEnd: '2026-04-05',
+    configuration, scheduledOnDate: true, completedDays: days.filter(d => d.completed).length,
+    ...(configuration.schedule.kind === 'weekly' ? { weeklyTarget: configuration.schedule.timesPerWeek,
+      weeklyCompleted: days.filter(d => d.completed).length >= configuration.schedule.timesPerWeek } : {}), days };
+}
 const test = base.extend({
   api: [async ({ page }, use) => {
     const api = {
-      calls: [], unexpected: [], detailStatus: 200, historyStatus: 200, mutationStatus: 200,
+      calls: [], unexpected: [], detailStatus: 200, historyStatus: 200, mutationStatus: 200, weekStatus: 200, week: null,
       habit: { habitId: 'read', title: 'Leer autorizado', slug: 'leer', active: true },
-      logs: [], beforeDetail: async () => {}, beforeHistory: async () => {}, beforeMutation: async () => {},
+      logs: [], beforeDetail: async () => {}, beforeHistory: async () => {}, beforeMutation: async () => {}, beforeWeek: async () => {},
     };
     await page.clock.install({ time: new Date('2026-04-01T00:30:00Z') });
     await page.addInitScript(() => {
@@ -30,6 +46,11 @@ const test = base.extend({
         if (method === 'GET' && url.pathname.endsWith('/auth/check-status')) return reply(profile);
         if (method === 'GET' && url.pathname.endsWith('/habits')) return reply([]);
         if (method === 'GET' && url.pathname.endsWith('/habits/logs')) return reply([]);
+        if (method === 'GET' && /\/habits\/[^/]+\/week$/.test(url.pathname)) {
+          const week = api.week ?? syntheticWeek(api);
+          await api.beforeWeek();
+          return reply(week, api.weekStatus);
+        }
         if (method === 'GET' && /\/habits\/[^/]+\/logs$/.test(url.pathname)) {
           const logs = [...api.logs];
           await api.beforeHistory();
@@ -59,7 +80,17 @@ const test = base.extend({
         if (['POST', 'DELETE', 'PATCH'].includes(method) && /\/habits\/read(?:\/(?:complete|incomplete))?$/.test(url.pathname)) {
           await api.beforeMutation();
           if (api.mutationStatus !== 200) return reply({ message: 'Synthetic failure' }, api.mutationStatus);
-          if (method === 'POST') { const entry = log('2026-03-31'); api.logs.push(entry); return reply(entry); }
+          if (method === 'POST') {
+            const existing = api.logs.find(l => l.date.slice(0, 10) === '2026-03-31');
+            const configuration = existing?.configurationSnapshot?.configuration ?? api.habit.configuration ?? dailyCheckbox;
+            const body = req.postDataJSON();
+            const entry = { ...log('2026-03-31'), ...(existing ?? {}),
+              configurationSnapshot: existing?.configurationSnapshot ?? snapshot(configuration),
+              completed: configuration.goal.kind === 'checkbox' ? true : body.amount >= configuration.goal.target,
+              ...(body?.amount !== undefined ? { amount: body.amount } : {}) };
+            api.logs = [...api.logs.filter(l => l.date.slice(0, 10) !== '2026-03-31'), entry];
+            return reply(entry);
+          }
           if (method === 'DELETE') { api.logs = api.logs.filter(l => l.date !== log('2026-03-31').date); return reply({ acknowledged: true, deletedCount: 1 }); }
           api.habit.active = false;
           return reply({ ...api.habit, _id: 'association', userId: 'synthetic-user' });
@@ -109,6 +140,7 @@ test('navigation state cannot override owned detail or bypass missing/nonowner 4
     await expect(page.getByText('Forged state')).toHaveCount(0);
     await expect(page.getByRole('button', { name: 'Editar hábito', exact: true })).toHaveCount(0);
     expect(calls(api, `/habits/${id}/logs`)).toHaveLength(0);
+    expect(calls(api, `/habits/${id}/week`)).toHaveLength(0);
   }
 });
 
@@ -125,6 +157,8 @@ test('loading hides old data; generic detail failure can retry without ordinary 
   api.detailStatus = 200;
   await page.getByRole('button', { name: 'Reintentar', exact: true }).click();
   await expect(title(page)).toBeVisible();
+  // Wait for all initial owned reads, including the independent new week request.
+  await expect(page.getByRole('region', { name: 'Semana', exact: true }).getByRole('row')).toHaveCount(8);
   const before = api.calls.length;
   await page.getByRole('button', { name: 'Desactivar', exact: true }).click();
   await page.getByRole('button', { name: 'Cancelar', exact: true }).click();
@@ -329,8 +363,8 @@ test('quantity to checkbox edit omits irrelevant goal fields and sends the compl
   expect(calls(api, '/habits/read/definition', 'PATCH')[0].body).toEqual({ configuration: {
     schedule: { kind: 'weekdays', days: [1, 7] }, goal: { kind: 'checkbox' },
   } });
-  // Today's authoritative goal is still quantitative until the API's effective date.
-  await expect(page.getByRole('button', { name: 'Registro de cantidad pendiente', exact: true })).toBeDisabled();
+  // Today's authoritative goal remains quantitative, and Tuesday is not selected.
+  await expect(page.getByRole('button', { name: 'Guardar cantidad', exact: true })).toBeDisabled();
 });
 
 test('legacy inactive owner can edit metadata without configuration or lifecycle mutation', async ({ page, api }) => {
@@ -367,7 +401,7 @@ test('edit rejection preserves form and history then supports retry; 404 is loca
 test('current quantity definition disables binary completion and unknown metadata remains render-safe', async ({ page, api }) => {
   Object.assign(api.habit, { icon: 'constructor', color: 'url(unsafe)', configuration: pendingGoal });
   await page.goto(`${origin}/habits/read`);
-  await expect(page.getByRole('button', { name: 'Registro de cantidad pendiente', exact: true })).toBeDisabled();
+  await expect(page.getByRole('button', { name: 'Guardar cantidad', exact: true })).toBeDisabled();
   await expect(page.getByRole('button', { name: 'Completar hoy', exact: true })).toHaveCount(0);
   expect(calls(api, '/habits/read/complete', 'POST')).toHaveLength(0);
 });
@@ -447,4 +481,288 @@ test('expired detail uses existing full session cleanup', async ({ page, api }) 
   await page.goto(`${origin}/habits/read`);
   await expect(page).toHaveURL(`${origin}/login`);
   expect(await page.evaluate(() => ['token', 'fullName', 'email', 'picture', 'timeZone', 'completedHabits_2026-03-31'].map(k => localStorage.getItem(k)))).toEqual(Array(6).fill(null));
+});
+
+const progress = page => page.getByRole('region', { name: 'Progreso de hoy', exact: true });
+const weekPanel = page => page.getByRole('region', { name: 'Semana', exact: true });
+async function saveAmount(page, value) {
+  await progress(page).getByLabel('Cantidad de hoy', { exact: true }).fill(value);
+  await progress(page).getByRole('button', { name: 'Guardar cantidad', exact: true }).click();
+}
+
+test('quantity zero, decimals and replacement totals use original target and stored completion', async ({ page, api }) => {
+  api.habit.configuration = quantityGoal();
+  api.habit.pendingConfiguration = { effectiveFrom: '2026-04-01', revisionId: 'pending', configuration: dailyCheckbox };
+  await page.goto(`${origin}/habits/read`);
+  await expect(progress(page)).toContainText('Objetivo original: 20 páginas');
+  await saveAmount(page, '0');
+  await expect(progress(page)).toContainText('Cantidad registrada: 0 páginas');
+  await expect(progress(page)).toContainText('Sin completar');
+  await expect(weekPanel(page)).toContainText('0 días completados');
+  expect(await page.evaluate(() => JSON.parse(localStorage.getItem('completedHabits_2026-03-31')))).not.toContain('read');
+  await saveAmount(page, '20.5');
+  await expect(progress(page)).toContainText('Completado');
+  await expect(weekPanel(page)).toContainText('1 días completados');
+  await saveAmount(page, '3');
+  await expect(progress(page)).toContainText('Cantidad registrada: 3 páginas');
+  await expect(progress(page)).toContainText('Sin completar');
+  expect(calls(api, '/habits/read/complete', 'POST').map(c => c.body)).toEqual([{ amount: 0 }, { amount: 20.5 }, { amount: 3 }]);
+  expect(calls(api, '/habits/read/logs').length).toBeGreaterThanOrEqual(4);
+  expect(calls(api, '/habits/read/week').length).toBeGreaterThanOrEqual(4);
+});
+
+test('amount validation rejects empty, negative, nonfinite and over-limit values without POST', async ({ page, api }) => {
+  api.habit.configuration = quantityGoal();
+  await page.goto(`${origin}/habits/read`);
+  for (const value of ['', '-1', 'NaN', 'Infinity', '1e309', '1000000001', 'texto']) {
+    await saveAmount(page, value);
+    await expect(progress(page).getByRole('alert')).toContainText('Introduce una cantidad finita entre 0 y 1000000000.');
+    expect(calls(api, '/habits/read/complete', 'POST')).toHaveLength(0);
+  }
+  await saveAmount(page, '1000000000');
+  await expect(progress(page)).toContainText('Cantidad registrada: 1000000000 páginas');
+});
+
+test('today snapshot wins over current and pending definitions and does not recalculate completed', async ({ page, api }) => {
+  api.habit.configuration = dailyCheckbox;
+  api.habit.pendingConfiguration = { effectiveFrom: '2026-04-01', revisionId: 'pending', configuration: quantityGoal(100, 'minutos') };
+  api.logs = [{ ...log('2026-03-31'), amount: 2, configurationSnapshot: snapshot(quantityGoal(10, 'km')) }];
+  await page.goto(`${origin}/habits/read`);
+  await expect(progress(page)).toContainText('Objetivo original: 10 km');
+  await expect(progress(page)).toContainText('Cantidad registrada: 2 km');
+  await expect(progress(page)).toContainText('Completado');
+  await expect(page.getByRole('button', { name: 'Completar hoy', exact: true })).toHaveCount(0);
+  await saveAmount(page, '5');
+  await expect(progress(page)).toContainText('Sin completar');
+  await expect(progress(page)).toContainText('Objetivo original: 10 km');
+});
+
+test('legacy missing amount stays unknown rather than inferred from target or completion', async ({ page, api }) => {
+  api.habit.configuration = quantityGoal(40, 'minutos');
+  api.logs = [log('2026-03-31')];
+  await page.goto(`${origin}/habits/read`);
+  await expect(progress(page)).toContainText('Cantidad no registrada (registro antiguo).');
+  await expect(progress(page).getByLabel('Cantidad de hoy', { exact: true })).toHaveValue('');
+  await expect(progress(page)).toContainText('Completado');
+  await expect(weekPanel(page)).toContainText('Cantidad no registrada');
+  expect(calls(api, '/habits/read/complete', 'POST')).toHaveLength(0);
+});
+
+for (const status of ['paused', 'archived']) {
+  test(`${status} status blocks measured progress even with stale active true`, async ({ page, api }) => {
+    Object.assign(api.habit, { active: true, status, configuration: quantityGoal() });
+    api.logs = [{ ...log('2026-03-31'), amount: 4 }];
+    await page.goto(`${origin}/habits/read`);
+    await expect(progress(page)).toContainText('Cantidad registrada: 4 páginas');
+    await expect(progress(page).getByRole('button', { name: 'Guardar cantidad' })).toHaveCount(0);
+    await expect(weekPanel(page).getByRole('row')).toHaveCount(8);
+    expect(calls(api, '/habits/read/complete', 'POST')).toHaveLength(0);
+  });
+}
+
+for (const kind of ['quantity', 'checkbox']) {
+  test(`selected weekdays gate new ${kind} records but existing snapshot schedule remains authoritative`, async ({ page, api }) => {
+    api.habit.configuration = { schedule: { kind: 'weekdays', days: [1] }, goal: kind === 'quantity' ? quantityGoal().goal : dailyCheckbox.goal };
+    await page.goto(`${origin}/habits/read`);
+    await expect(progress(page)).toContainText('Hoy no está programado.');
+    const button = page.getByRole('button', { name: kind === 'quantity' ? 'Guardar cantidad' : 'Completar hoy', exact: true });
+    await expect(button).toBeDisabled();
+    api.logs = [{ ...log('2026-03-31'), completed: false,
+      ...(kind === 'quantity' ? { amount: 1 } : {}),
+      configurationSnapshot: snapshot({ schedule: { kind: 'weekdays', days: [7] }, goal: api.habit.configuration.goal }) }];
+    await page.reload();
+    await expect(button).toBeEnabled();
+    if (kind === 'quantity') await saveAmount(page, '20');
+    else await button.click();
+    await expect.poll(() => calls(api, '/habits/read/complete', 'POST').length).toBe(1);
+  });
+}
+
+test('seven-day week uses synthetic midweek originals and selected-date quota, never quantity sums', async ({ page, api }) => {
+  api.habit.configuration = quantityGoal(100, 'minutos', { kind: 'weekly', timesPerWeek: 5 });
+  api.logs = [{ ...log('2026-03-30'), amount: 2, configurationSnapshot: snapshot(quantityGoal(2, 'km')) },
+    { ...log('2026-03-31'), amount: 0, completed: false, configurationSnapshot: snapshot(quantityGoal(10, 'páginas', { kind: 'weekly', timesPerWeek: 3 })) }];
+  api.week = { ...syntheticWeek(api), configuration: api.logs[1].configurationSnapshot.configuration,
+    weeklyTarget: 3, weeklyCompleted: false };
+  await page.goto(`${origin}/habits/read`);
+  const panel = weekPanel(page);
+  await expect(panel.getByRole('row')).toHaveCount(8);
+  await expect(panel).toContainText('Fecha seleccionada: 2026-03-31');
+  await expect(panel).toContainText('Cuota de la fecha seleccionada: 3 días');
+  await expect(panel).toContainText('1 días completados');
+  await expect(panel.getByRole('row').filter({ hasText: '2026-03-30' })).toContainText('2 km');
+  await expect(panel.getByRole('row').filter({ hasText: '2026-03-31' })).toContainText('10 páginas');
+  await expect(panel.getByRole('row').filter({ hasText: '2026-04-01' })).toContainText('100 minutos');
+  expect(calls(api, '/habits/read/week').every(c => c.search === '')).toBe(true);
+});
+
+test('week failure retries independently without losing loaded history or definition', async ({ page, api }) => {
+  api.weekStatus = 500;
+  api.logs = [log('2026-03-30')];
+  await page.goto(`${origin}/habits/read`);
+  await expect(weekPanel(page).getByRole('alert')).toContainText('No se pudo cargar la semana.');
+  await expect(page.getByText('lunes, 30 de marzo de 2026')).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Completar hoy', exact: true })).toBeEnabled();
+  const detailReads = calls(api, '/habits/read').length;
+  const historyReads = calls(api, '/habits/read/logs').length;
+  api.weekStatus = 200;
+  await weekPanel(page).getByRole('button', { name: 'Reintentar semana' }).click();
+  await expect(weekPanel(page).getByRole('row')).toHaveCount(8);
+  expect(calls(api, '/habits/read')).toHaveLength(detailReads);
+  expect(calls(api, '/habits/read/logs')).toHaveLength(historyReads);
+});
+
+for (const failed of ['history', 'week']) {
+  test(`saved amount with ${failed} refresh failure retries reads without repeating mutation`, async ({ page, api }) => {
+    api.habit.configuration = quantityGoal();
+    await page.goto(`${origin}/habits/read`);
+    await expect(weekPanel(page).getByRole('row')).toHaveCount(8);
+    api[failed === 'history' ? 'historyStatus' : 'weekStatus'] = 500;
+    await saveAmount(page, '25');
+    await expect(page.getByText(failed === 'history' ? 'La cantidad se guardó, pero no se pudieron recargar los registros.' : 'No se pudo cargar la semana.', { exact: true })).toBeVisible();
+    await expect(progress(page)).toContainText('Cantidad registrada: 25 páginas');
+    api.historyStatus = api.weekStatus = 200;
+    await page.getByRole('button', { name: failed === 'history' ? 'Reintentar registros' : 'Reintentar semana', exact: true }).click();
+    await expect(weekPanel(page)).toContainText('1 días completados');
+    await expect(page.getByRole('alert')).toHaveCount(0);
+    expect(calls(api, '/habits/read/complete', 'POST')).toHaveLength(1);
+  });
+}
+
+test('empty week shows seven dates; owned detail must finish before week request', async ({ page, api }) => {
+  const held = deferred();
+  api.beforeDetail = () => held.promise;
+  try {
+    await page.goto(`${origin}/habits/read`);
+    await expect(page.locator('.animate-spin')).toBeVisible();
+    expect(calls(api, '/habits/read/week')).toHaveLength(0);
+  } finally { held.release(); }
+  await expect(weekPanel(page).getByRole('row')).toHaveCount(8);
+  await expect(weekPanel(page)).toContainText('0 días completados');
+  await expect(weekPanel(page)).toContainText('2026-04-05');
+});
+
+test('late week route response cannot flash another habit', async ({ page, api }) => {
+  const held = deferred();
+  api.beforeWeek = () => held.promise;
+  try {
+    await page.goto(`${origin}/habits/read`);
+    await expect.poll(() => calls(api, '/habits/read/week').length).toBe(1);
+    api.beforeWeek = async () => {};
+    api.habit = { habitId: 'walk', title: 'Caminar autorizado', active: true };
+    await navigate(page, 'walk');
+    await expect(page.getByRole('heading', { name: 'Caminar autorizado' })).toBeVisible();
+    await expect(weekPanel(page).getByRole('row')).toHaveCount(8);
+  } finally { held.release(); }
+  await page.clock.runFor(500);
+  await expect(title(page)).toHaveCount(0);
+});
+
+test('late measured mutation after logout cannot refresh or refill account cache', async ({ page, api }) => {
+  api.habit.configuration = quantityGoal();
+  await page.goto(`${origin}/habits/read`);
+  await expect(weekPanel(page).getByRole('row')).toHaveCount(8);
+  const held = deferred();
+  api.beforeMutation = () => held.promise;
+  const reads = calls(api, '/habits/read/week').length;
+  try {
+    await saveAmount(page, '25');
+    await expect(progress(page).getByRole('button', { name: 'Guardando cantidad...' })).toBeDisabled();
+    await page.getByRole('button', { name: 'Salir', exact: true }).click();
+    await expect(page).toHaveURL(`${origin}/login`);
+  } finally { held.release(); }
+  await page.clock.runFor(500);
+  expect(calls(api, '/habits/read/week')).toHaveLength(reads);
+  expect(await page.evaluate(() => localStorage.getItem('completedHabits_2026-03-31'))).toBeNull();
+});
+
+test('401 measured progress clears session; ordinary failure retains editable amount', async ({ page, api }) => {
+  api.habit.configuration = quantityGoal();
+  await page.goto(`${origin}/habits/read`);
+  api.mutationStatus = 500;
+  await saveAmount(page, '5');
+  await expect(page.getByRole('alert')).toContainText('No se pudo actualizar el hábito.');
+  await expect(progress(page).getByLabel('Cantidad de hoy')).toHaveValue('5');
+  api.mutationStatus = 401;
+  await saveAmount(page, '5');
+  await expect(page).toHaveURL(`${origin}/login`);
+  expect(await page.evaluate(() => localStorage.getItem('token'))).toBeNull();
+});
+
+test('original checkbox snapshot keeps bodyless completion despite current quantity definition', async ({ page, api }) => {
+  api.habit.configuration = quantityGoal();
+  api.logs = [{ ...log('2026-03-31'), completed: false, configurationSnapshot: snapshot(dailyCheckbox) }];
+  await page.goto(`${origin}/habits/read`);
+  await expect(progress(page)).toContainText('Objetivo original: Marcar completado');
+  await expect(progress(page).getByLabel('Cantidad de hoy')).toHaveCount(0);
+  await page.getByRole('button', { name: 'Completar hoy', exact: true }).click();
+  await expect(progress(page)).toContainText('Completado');
+  expect(calls(api, '/habits/read/complete', 'POST').map(c => c.body)).toEqual([null]);
+});
+
+test('new amount on selected account weekday is allowed and week loading does not block history', async ({ page, api }) => {
+  api.habit.configuration = quantityGoal(20, 'páginas', { kind: 'weekdays', days: [2] });
+  const held = deferred();
+  api.beforeWeek = () => held.promise;
+  try {
+    await page.goto(`${origin}/habits/read`);
+    await expect(weekPanel(page).getByRole('status')).toContainText('Cargando semana');
+    await expect(page.getByText('Aún no hay registros para este hábito.')).toBeVisible();
+    await expect(progress(page).getByRole('button', { name: 'Guardar cantidad' })).toBeEnabled();
+  } finally { held.release(); }
+  await saveAmount(page, '20');
+  await expect(progress(page)).toContainText('Completado');
+  await expect(weekPanel(page)).toContainText('1 días completados');
+});
+
+test('week remains readable when history fails; definition refresh retry cannot dismiss week failure', async ({ page, api }) => {
+  api.historyStatus = 500;
+  await page.goto(`${origin}/habits/read`);
+  await expect(page.getByText('No se pudieron cargar los registros.')).toBeVisible();
+  await expect(weekPanel(page).getByRole('row')).toHaveCount(8);
+  api.historyStatus = 200;
+  api.weekStatus = 500;
+  await page.getByRole('button', { name: 'Reintentar', exact: true }).click();
+  await expect(weekPanel(page).getByRole('alert')).toBeVisible();
+  await page.getByRole('button', { name: 'Editar hábito', exact: true }).click();
+  const dialog = page.getByRole('dialog');
+  await dialog.getByLabel('Título', { exact: true }).fill('Nueva definición');
+  api.detailStatus = 500;
+  await dialog.getByRole('button', { name: 'Guardar cambios', exact: true }).click();
+  await expect(page.getByText('Los cambios se guardaron, pero no se pudo recargar la definición.')).toBeVisible();
+  api.detailStatus = 200;
+  await page.getByRole('button', { name: 'Reintentar actualización', exact: true }).click();
+  await expect(page.getByRole('heading', { name: 'Nueva definición' })).toBeVisible();
+  await expect(weekPanel(page).getByRole('alert')).toBeVisible();
+});
+
+test('expired week read clears session without disclosing history', async ({ page, api }) => {
+  api.weekStatus = 401;
+  await page.goto(`${origin}/habits/read`);
+  await expect(page).toHaveURL(`${origin}/login`);
+  expect(await page.evaluate(() => localStorage.getItem('token'))).toBeNull();
+  await expect(weekPanel(page)).toHaveCount(0);
+});
+
+test.describe('account date differs from browser date', () => {
+  test.use({ timezoneId: 'Asia/Tokyo' });
+  test('measured weekday and week default use account date; focus after midnight discards old route data', async ({ page, api }) => {
+    api.habit.configuration = quantityGoal(20, 'páginas', { kind: 'weekdays', days: [2] });
+    await page.goto(`${origin}/habits/read`);
+    await expect(progress(page)).toContainText('Fecha de la cuenta: 2026-03-31');
+    await expect(progress(page).getByRole('button', { name: 'Guardar cantidad' })).toBeEnabled();
+    await expect(weekPanel(page)).toContainText('Fecha seleccionada: 2026-03-31');
+    await page.clock.setSystemTime(new Date('2026-04-01T07:00:01Z'));
+    // Before focus/remount, the mutation guard must already reject the stale day.
+    await saveAmount(page, '25');
+    expect(calls(api, '/habits/read/complete', 'POST')).toHaveLength(0);
+    api.week = { ...syntheticWeek(api), date: '2026-04-01' };
+    const reads = calls(api, '/habits/read/week').length;
+    await page.evaluate(() => window.dispatchEvent(new Event('focus')));
+    await expect(progress(page)).toContainText('Fecha de la cuenta: 2026-04-01');
+    await expect(progress(page)).toContainText('Hoy no está programado.');
+    await expect(progress(page).getByLabel('Cantidad de hoy')).toHaveValue('');
+    await expect(weekPanel(page)).toContainText('Fecha seleccionada: 2026-04-01');
+    expect(calls(api, '/habits/read/week').length).toBeGreaterThan(reads);
+  });
 });

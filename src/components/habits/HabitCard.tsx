@@ -60,8 +60,8 @@ export default function HabitCard({ habit, onLog }: HabitCardProps) {
         onClick={() => { if (canTrack) onLog(habit.habitId, !!habit.completedToday); }}
         className='ml-4 shrink-0'
         aria-label={quantity ? 'Registro de cantidad pendiente' : undefined}
-        title={quantity ? 'El registro de cantidades estará disponible próximamente.' : habit.completedToday ? 'Desmarcar' : 'Completar'}>
-        {quantity ? 'Cantidad: próximamente' : habit.completedToday ? '✓ Hecho' : 'Completar'}
+        title={quantity ? 'Abre el detalle del hábito para registrar cantidades.' : habit.completedToday ? 'Desmarcar' : 'Completar'}>
+        {quantity ? 'Cantidad: en detalle' : habit.completedToday ? '✓ Hecho' : 'Completar'}
       </Button>
     </li>
   );
