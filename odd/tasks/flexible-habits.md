@@ -18,9 +18,9 @@ Each user can configure personal habits without affecting another user or losing
 - [x] T3a — Current-day measured progress and immutable original configuration snapshots. **API master `310fe3ae06dd5a89bebdd83cf3620ce0a8819bf2`; checks passed and native approval acknowledged**. Route: delegated API writer (DTO/schema/controller/service/tests). Test replacement daily totals, goal thresholds, repeated calls, selected weekdays, owner/activity checks and legacy checkbox compatibility.
 - [x] T3b — Notes and owner-scoped historical correction evaluated against original snapshots or the definition applicable on the record date. **API master `05dc5124d716f2d1e68c8b8b884cd1ba338d99d0`; checks passed and native approval acknowledged**. Route: delegated API writer. Test notes-only preservation, corrected quantities, date validation, legacy quantity gaps and foreign IDs.
 - [x] T3c — Weekly progress and schedule read semantics. **API master `0ad4b413a8bb182b7618c8a25acd202badf428ce`; checks passed and native approval acknowledged**. Route: delegated API writer. Test ISO week boundaries/account dates, quota counts and original per-record completion across goal changes.
-- [ ] T4 — Pause/archive/reopen lifecycle without deleting history and HTTP integration coverage for the new contracts. **Next active unit: planning only; no T4 source changes yet**. Route: delegated API writer; deterministic service and mocked Nest HTTP checks. Keep legacy endpoints compatible.
-- [ ] T5 — Frontend create/edit configuration forms and personal metadata presentation, API types and error states. Route: delegated frontend writer. Synthetic browser tests, build and lint.
-- [ ] T6 — Frontend quantity/notes/history correction and pause/archive controls. Route: delegated frontend writer. Browser checks prove historical goals survive edits and two-user isolation through API fixtures.
+- [x] T4 — Pause/archive/reopen lifecycle without deleting history and HTTP integration coverage for the new contracts. **API master `574d34be270b44236c4e2fa6220a357aa763ce44`; checks passed and native approval acknowledged**. Route: delegated API writer; deterministic service and mocked Nest HTTP checks. Keep legacy endpoints compatible.
+- [x] T5 — Frontend create/edit configuration forms and personal metadata presentation, API types and error states. **Frontend master `6840d7bb90c478be89e2e266c835dda306e6f969`; checks passed and native approval acknowledged**. Route: delegated frontend writer. Synthetic browser tests, build and lint.
+- [ ] T6 — Frontend quantity/notes/history correction and pause/archive controls. **Next active unit: planning only; no T6 source changes yet**. Route: delegated frontend writer. Browser checks prove historical goals survive edits and two-user isolation through API fixtures.
 - [ ] T7 — Cross-project regression checks, docs and Stage 3 acceptance evidence. Route: delegated verifier; parent integrates documentation/evidence. Full applicable unit/HTTP/browser checks and both builds/lint; explicitly record unverified live Mongo/Google behavior.
 
 ## Acceptance
@@ -55,7 +55,7 @@ Each user can configure personal habits without affecting another user or losing
 - Generated Nest build and live Mongo/concurrency/Google remain unverified. Schedule enforcement, quantities, snapshots and historical corrections remain T3; present complete/incomplete endpoints still use legacy booleans. No frontend source work yet.
 
 ## T3 slicing and contract
-- Split T3 into T3a/T3b/T3c to keep record writing, historical correction and weekly read behavior separately reviewable. Nine work units total, five complete.
+- Split T3 into T3a/T3b/T3c to keep record writing, historical correction and weekly read behavior separately reviewable. Nine work units total, seven complete.
 - `amount` is a replacement daily total, not an increment. Quantity goals require a finite nonnegative amount; checkbox bodyless completion stays compatible and rejects numeric amounts. New logs store an original configuration snapshot; existing snapshots are never rewritten by repeated completion.
 - Missing legacy amounts are not inferred from boolean completion. Keep legacy dates/booleans and indexes; effective-date definitions resolve missing snapshots without bulk migration. T3b handles explicit corrections and notes.
 - Selected weekdays constrain new records; weekly quota allows any weekday. Existing historical records remain accessible and are not removed when a schedule changes.
@@ -82,5 +82,30 @@ Each user can configure personal habits without affecting another user or losing
 - Read-onlyownerweekroute, inactivehistoryallowed, perdayoriginalsnapshots/storedbooleans preserved, selecteddatequota explicitlylabeled. ISOweek overflow beyondyear9999 rejects400; year0001 support uses sharedcalendar validator instead of IsDateString.
 - Protected manifests unchanged. Full production/generatedNestbuild/liveMongo/Google/frontend/browserStage3checks stillunverified; no new dependencies or userdatabase writes.
 
+## T4 design
+- Optional association status active/paused/archived, no bulk backfill; missing status resolves from legacy active boolean. Synchronize active on all lifecycle writes and fail closed for inactive states in new-progress gates.
+- Dedicated lifecycle PATCH explicitly sets state. Default list stays active; optional status filter supports paused/archived/all, with status/active fields additive. Inactive-owned detail/metadata/history/existing-record correction remain accessible.
+- POST may resume paused but must atomically exclude archived associations and return restore-required409 on archive collision. The old empty PATCH pauses but never downgrades an archived row. No log deletion, goal changes or history migration.
+
+## T4 verification
+- RED10intendedHTTPfailures/90passes; final620unit across19suites/111syntheticHTTP/noEmit/scopedlint0/0. Independentfull620unit111HTTP/type/lint repeated and passed; no blocker found in bounded archive/legacy/history/ownership inspection.
+- API master `574d34be270b44236c4e2fa6220a357aa763ce44`:11paths838add51delete889diff lines. High4lens `review-d71979dec2bf84ee` approved/exactackburned. InformationalR4-concurrent-create atservice110 is a separatelaterfollowup, notcorrection orreopenedapproval.
+- ASSESSunassessabledue.codegraph declaration; conservativeindependentfullverificationdone. Protectedmanifesthashesunchanged, artifactpreserved/excluded. LiveMongo/concurrency/generatedbuildunverified.
+- Lifecycle history/configuration/log snapshots retained; legacyemptyPATCHcannotdowngradearchive, POSTarchivecollision409requires explicitrestore. Additivestatus/active list/detailcontract readyforfrontend.
+
+## T5 design and checks
+- Create/edit personal title/category/color/icon and full schedule/checkbox-or-quantity configuration using the existing Spanish UI convention. Detail is the owner-aware edit host; show current and pending next-day definitions clearly. Metadata-only edits do not create a new goal revision.
+- Preserve existing page/session flow; no Today redesign, stats, reminders, shared-template marketplace or new dependencies. Invalid/foreign edits use existing error handling. Do not issue bodyless completion for quantitative goals; measured controls belong T6.
+- Use external `C:/Users/adria/AppData/Local/Temp/habit-tracker-core-regression/run-regression.cjs`: cached Playwright/Chrome, Vite envFile:false + synthetic API, no env-byte reads, no installer. Existing four spec files selected. Never update source/taskdoc while scope snapshots run.
+- TypeScript noEmit plus lint, production Vite in-memory bundle `{envFile:false,build:{write:false}}`; avoid normal frontend Vite build loading private env or deleting dist. No runner/package/lock edits.
+
+## T5 verification
+- WriterRED11intendedbrowserfailures/29passes beforeimplementation, supplementaryJSON-orderregression1fail42passes; final44browserpasses. Independent44browser/typeapp+node/lint/inmemoryVitebundle repeated and passed (1814modules); no boundedissues. IndependentREDnotobserved, writerREDrecordpreserved.
+- Browser44.7s/exit0/scope[]/VITE_STOPPEDtrue/PORT_4173_CLOSED; verifiedwrapperenvFilefalse/syntheticAPI/.envbytesexcluded/cachedCLI/noinstaller. No liveAPI/Mongo/Google or manualvisual acceptance claim. StaleBrowserslist/LFCRLFwarnings remain.
+- Dependency Gitobject hashes unchanged: package.json439e0dea24b2dcf563eee496eab5b43bdb8a0bc0, pnpm-lock.yamlebadf7b1cab78809b79d4dbf40b0a6571030c122, pnpm-workspace.yamlc6790699fab1d7a71ffdeebfce93304dacbd26f5.
+- Frontend master `6840d7bb90c478be89e2e266c835dda306e6f969`:9paths860add113delete973diff lines. Shared Spanish configuration form and safe icons; pendingconfigseededit/currentconfiggatestoday; semanticequalityomitsmetadata-onlyconfigPATCH; errorrefreshretryneverrepeatsmutation. QuantityshortcutdisableduntilT6.
+- FirstreviewSTARTconsentexpiredafter10min: nativeinvocationfalse/lineage_createdfalse; freshinspect/STARTexactsamecommittedcandidatecreatedhigh4lens `review-fce5a93441f2967c`, approved/exactackburned. InformationalR3-quantity-undo(detail285)laterfollowupnotcorrection. ASSESScommittedrangeconsumedtrue/reviewDuefalse/nativeoutcomeclosed; no separate verifier required byplan, independentfunctionalchecks alreadyobserved.
+- Frontendrepositoryexplicitinteractiveconsentgrantedthisturn; APIandfrontendprivateenv/dependenciesuntouched. Existing external runner/config not modified.
+
 ## Progress and next step
-T1/T2/T3a/T3b/T3c closed (5 of9). Resume T4: define pause/archive/reopen persistence and owned-list visibility with compatibility; then T5/T6 frontend and T7 closure. Preserve legacy date labels, log identity and original goals. Frontend source unchanged; task document is parent-owned. Full mirror topic: `odd/flexible-habits/tasks`, project `habit-tracker`; canonical locator: `frontend/odd/tasks/flexible-habits.md`.
+T1/T2/T3a/T3b/T3c/T4/T5 closed (7 of9). Resume T6: map and implement quantity tracking, dated notes/corrections, weekly progress and status/list controls; split into coherent UI work units if multi-area size forecasts warrant. Then T7 functional/regression closure. Preserve legacy date labels, log identity and original goals. Task document is parent-owned. Full mirror topic: `odd/flexible-habits/tasks`, project `habit-tracker`; canonical locator: `frontend/odd/tasks/flexible-habits.md`.
