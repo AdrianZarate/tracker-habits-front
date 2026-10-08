@@ -6,7 +6,7 @@ import App from './App.tsx';
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
-    <GoogleOAuthProvider clientId='946753883098-bgnbv8vkdtef27ng9mp55anc2c7cjhf9.apps.googleusercontent.com'>
+    <GoogleOAuthProvider clientId='618307652432-79ma40r4koprr830nh3cdst10i6h0abm.apps.googleusercontent.com'>
       <App />
     </GoogleOAuthProvider>
   </StrictMode>,
