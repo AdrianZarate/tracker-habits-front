@@ -7,24 +7,34 @@ const profile = { fullName: 'Detail user', email: 'detail@example.invalid', toke
 const log = (day, id = day) => ({ _id: id, habitId: 'read', date: `${day}T00:00:00.000Z`, completed: true });
 const quantityGoal = (target = 20, unit = 'páginas', schedule = { kind: 'daily' }) => ({ schedule, goal: { kind: 'quantity', target, unit } });
 const snapshot = configuration => ({ configuration });
-function syntheticWeek(api) {
-  const configuration = api.habit.configuration ?? { schedule: { kind: 'daily' }, goal: { kind: 'checkbox' } };
+function syntheticWeek(api, selected = '2026-03-31') {
+  const configurationFor = date => api.dateConfigurations[date] ?? api.habit.configuration ?? dailyCheckbox;
+  const selectedLog = api.logs.find(l => l.date.slice(0, 10) === selected);
+  const configuration = selectedLog?.configurationSnapshot?.configuration ?? configurationFor(selected);
+  const monday = new Date(`${selected}T00:00:00Z`);
+  monday.setUTCDate(monday.getUTCDate() - ((monday.getUTCDay() || 7) - 1));
   const days = Array.from({ length: 7 }, (_, i) => {
-    const date = new Date(Date.UTC(2026, 2, 30 + i)).toISOString().slice(0, 10);
+    const anchor = new Date(monday);
+    anchor.setUTCDate(anchor.getUTCDate() + i);
+    const date = anchor.toISOString().slice(0, 10);
     const entry = api.logs.find(l => l.date.slice(0, 10) === date);
     return { date, scheduled: true, completed: entry?.completed ?? false,
       ...(entry?.amount !== undefined ? { amount: entry.amount } : {}),
-      configurationSnapshot: entry?.configurationSnapshot ?? snapshot(configuration) };
+      configurationSnapshot: entry?.configurationSnapshot ?? snapshot(configurationFor(date)) };
   });
-  return { habitId: api.habit.habitId, date: '2026-03-31', weekStart: '2026-03-30', weekEnd: '2026-04-05',
-    configuration, scheduledOnDate: true, completedDays: days.filter(d => d.completed).length,
+  const selectedDay = days.find(d => d.date === selected);
+  const schedule = configuration.schedule;
+  const scheduledOnDate = schedule.kind !== 'weekdays' || schedule.days.includes(new Date(`${selected}T00:00:00Z`).getUTCDay() || 7);
+  selectedDay.scheduled = scheduledOnDate;
+  return { habitId: api.habit.habitId, date: selected, weekStart: days[0].date, weekEnd: days[6].date,
+    configuration, scheduledOnDate, completedDays: days.filter(d => d.completed).length,
     ...(configuration.schedule.kind === 'weekly' ? { weeklyTarget: configuration.schedule.timesPerWeek,
       weeklyCompleted: days.filter(d => d.completed).length >= configuration.schedule.timesPerWeek } : {}), days };
 }
 const test = base.extend({
   api: [async ({ page }, use) => {
     const api = {
-      calls: [], unexpected: [], detailStatus: 200, historyStatus: 200, mutationStatus: 200, weekStatus: 200, week: null,
+      calls: [], unexpected: [], detailStatus: 200, historyStatus: 200, mutationStatus: 200, weekStatus: 200, week: null, dateConfigurations: {},
       habit: { habitId: 'read', title: 'Leer autorizado', slug: 'leer', active: true },
       logs: [], beforeDetail: async () => {}, beforeHistory: async () => {}, beforeMutation: async () => {}, beforeWeek: async () => {},
     };
@@ -47,13 +57,15 @@ const test = base.extend({
         if (method === 'GET' && url.pathname.endsWith('/habits')) return reply([]);
         if (method === 'GET' && url.pathname.endsWith('/habits/logs')) return reply([]);
         if (method === 'GET' && /\/habits\/[^/]+\/week$/.test(url.pathname)) {
-          const week = api.week ?? syntheticWeek(api);
+          const week = api.week ?? syntheticWeek(api, url.searchParams.get('date') ?? '2026-03-31');
           await api.beforeWeek();
           return reply(week, api.weekStatus);
         }
         if (method === 'GET' && /\/habits\/[^/]+\/logs$/.test(url.pathname)) {
-          const logs = [...api.logs];
-          await api.beforeHistory();
+          const start = url.searchParams.get('startDate') ?? '2026-03-01';
+          const end = url.searchParams.get('endDate') ?? '2026-03-31';
+          const logs = api.logs.filter(l => l.date.slice(0, 10) >= start && l.date.slice(0, 10) <= end);
+          await api.beforeHistory(url.searchParams);
           return reply(logs, api.historyStatus);
         }
         if (method === 'GET' && /\/habits\/[^/]+$/.test(url.pathname)) {
@@ -61,6 +73,20 @@ const test = base.extend({
           await api.beforeDetail();
           if (api.detailStatus === 0) return route.abort();
           return reply(habit, api.detailStatus);
+        }
+        if (method === 'PATCH' && /\/habits\/read\/logs\/[^/]+$/.test(url.pathname)) {
+          const date = url.pathname.split('/').pop(), body = req.postDataJSON();
+          await api.beforeMutation();
+          if (api.mutationStatus !== 200) return reply({ message: 'Synthetic failure' }, api.mutationStatus);
+          const existing = api.logs.find(l => l.date.slice(0, 10) === date);
+          const configuration = existing?.configurationSnapshot?.configuration ?? api.dateConfigurations[date] ?? api.habit.configuration ?? dailyCheckbox;
+          const entry = { ...log(date), ...(existing ?? {}),
+            ...(!existing ? { configurationSnapshot: snapshot(configuration) } : {}) };
+          if ('amount' in body) { entry.amount = body.amount; entry.completed = body.amount >= configuration.goal.target; }
+          if ('completed' in body) entry.completed = body.completed;
+          if ('note' in body) { if (body.note) entry.note = body.note; else delete entry.note; }
+          api.logs = [...api.logs.filter(l => l.date.slice(0, 10) !== date), entry];
+          return reply(entry);
         }
         if (method === 'PATCH' && url.pathname.endsWith('/habits/read/definition')) {
           const body = req.postDataJSON();
@@ -139,6 +165,7 @@ test('navigation state cannot override owned detail or bypass missing/nonowner 4
     await expect(title(page)).toHaveCount(0);
     await expect(page.getByText('Forged state')).toHaveCount(0);
     await expect(page.getByRole('button', { name: 'Editar hábito', exact: true })).toHaveCount(0);
+    await expect(page.getByRole('region', { name: 'Corregir un registro', exact: true })).toHaveCount(0);
     expect(calls(api, `/habits/${id}/logs`)).toHaveLength(0);
     expect(calls(api, `/habits/${id}/week`)).toHaveLength(0);
   }
@@ -635,6 +662,7 @@ test('empty week shows seven dates; owned detail must finish before week request
   try {
     await page.goto(`${origin}/habits/read`);
     await expect(page.locator('.animate-spin')).toBeVisible();
+    await expect(page.getByRole('region', { name: 'Corregir un registro', exact: true })).toHaveCount(0);
     expect(calls(api, '/habits/read/week')).toHaveLength(0);
   } finally { held.release(); }
   await expect(weekPanel(page).getByRole('row')).toHaveCount(8);
@@ -742,6 +770,306 @@ test('expired week read clears session without disclosing history', async ({ pag
   await expect(page).toHaveURL(`${origin}/login`);
   expect(await page.evaluate(() => localStorage.getItem('token'))).toBeNull();
   await expect(weekPanel(page)).toHaveCount(0);
+});
+
+const historyEditor = page => page.getByRole('region', { name: 'Corregir un registro', exact: true });
+const corrections = api => api.calls.filter(c => c.method === 'PATCH' && /\/logs\/[^/]+$/.test(c.path));
+async function selectRecord(page, date = '2026-03-30') {
+  await historyEditor(page).getByLabel('Fecha del registro', { exact: true }).fill(date);
+}
+async function openRecord(page, date = '2026-03-30') {
+  await page.goto(`${origin}/habits/read`);
+  await selectRecord(page, date);
+  await expect(historyEditor(page).getByLabel('Nota', { exact: true })).toBeVisible();
+  return historyEditor(page);
+}
+const saveRecord = editor => editor.getByRole('button', { name: 'Guardar registro', exact: true }).click();
+
+test('dated notes-only legacy quantity preserves unknown amount and stored completion', async ({ page, api }) => {
+  api.habit.configuration = quantityGoal(100, 'minutos');
+  api.dateConfigurations['2026-03-30'] = quantityGoal(10, 'km');
+  api.logs = [log('2026-03-30')];
+  const editor = await openRecord(page);
+  await expect(editor).toContainText('Objetivo original: 10 km');
+  await expect(editor).toContainText('Cantidad no registrada (registro antiguo).');
+  await expect(editor).toContainText('Finalización guardada: Completado');
+  await editor.getByLabel('Nota', { exact: true }).fill('  Sólo nota  ');
+  await saveRecord(editor);
+  await expect(editor).toContainText('Registro actualizado.');
+  expect(corrections(api).map(c => c.body)).toEqual([{ note: 'Sólo nota' }]);
+  expect(api.logs[0]).not.toHaveProperty('amount');
+  expect(api.logs[0]).not.toHaveProperty('configurationSnapshot');
+  expect(api.logs[0].completed).toBe(true);
+});
+
+test('dated snapshot original amount wins over today/pending; unchanged opt-in amount omitted', async ({ page, api }) => {
+  api.habit.configuration = quantityGoal(100, 'minutos');
+  api.habit.pendingConfiguration = { revisionId: 'next', effectiveFrom: '2026-04-01', configuration: dailyCheckbox };
+  api.logs = [{ ...log('2026-03-30'), amount: 2, configurationSnapshot: snapshot(quantityGoal(10, 'km')) }];
+  const editor = await openRecord(page);
+  await expect(editor).toContainText('Cantidad registrada: 2 km');
+  await editor.getByLabel('Corregir progreso', { exact: true }).check();
+  await expect(editor.getByLabel('Cantidad corregida', { exact: true })).toHaveValue('2');
+  await expect(editor.getByRole('button', { name: 'Guardar registro', exact: true })).toBeDisabled();
+  await editor.getByLabel('Cantidad corregida', { exact: true }).fill('5');
+  await saveRecord(editor);
+  await expect(editor).toContainText('Finalización guardada: Sin completar');
+  await expect(editor).toContainText('Objetivo original: 10 km');
+  expect(corrections(api).map(c => c.body)).toEqual([{ amount: 5 }]);
+});
+
+test('dated checkbox false, clear note and unchanged trimmed note never send unrelated fields', async ({ page, api }) => {
+  api.habit.configuration = quantityGoal();
+  api.logs = [{ ...log('2026-03-30'), note: 'Anterior', configurationSnapshot: snapshot(dailyCheckbox) }];
+  const editor = await openRecord(page);
+  await editor.getByLabel('Nota', { exact: true }).fill(' Anterior ');
+  await expect(editor).toContainText('No hay cambios para guardar.');
+  await expect(editor.getByRole('button', { name: 'Guardar registro', exact: true })).toBeDisabled();
+  await editor.getByLabel('Corregir progreso', { exact: true }).check();
+  await editor.getByLabel('Completado', { exact: true }).uncheck();
+  await saveRecord(editor);
+  await expect(editor).toContainText('Registro actualizado.');
+  await editor.getByLabel('Nota', { exact: true }).fill('   ');
+  await saveRecord(editor);
+  await expect(editor.getByLabel('Nota', { exact: true })).toHaveValue('');
+  expect(corrections(api).map(c => c.body)).toEqual([{ completed: false }, { note: '' }]);
+});
+
+test('dated quantity opt-in requires finite bounded amount and validates trimmed note length', async ({ page, api }) => {
+  api.habit.configuration = quantityGoal();
+  api.logs = [log('2026-03-30')];
+  const editor = await openRecord(page);
+  await editor.getByLabel('Corregir progreso', { exact: true }).check();
+  for (const value of ['', '-1', 'NaN', 'Infinity', '1e309', '1000000001', 'null']) {
+    await editor.getByLabel('Cantidad corregida', { exact: true }).fill(value);
+    await saveRecord(editor);
+    await expect(editor.getByRole('alert')).toContainText('Introduce una cantidad finita');
+  }
+  await editor.getByLabel('Cantidad corregida', { exact: true }).fill('0');
+  await editor.getByLabel('Nota', { exact: true }).fill('x'.repeat(2001));
+  await saveRecord(editor);
+  await expect(editor.getByRole('alert')).toContainText('2000');
+  expect(corrections(api)).toHaveLength(0);
+  await editor.getByLabel('Nota', { exact: true }).fill(' ' + 'x'.repeat(2000) + ' ');
+  await saveRecord(editor);
+  await expect(editor).toContainText('Cantidad registrada: 0 páginas');
+  expect(corrections(api)[0].body).toEqual({ amount: 0, note: 'x'.repeat(2000) });
+});
+
+test('date before current month uses actual single-date range and effective goal; invalid dates never load or mutate', async ({ page, api }) => {
+  api.habit.configuration = quantityGoal(100);
+  api.dateConfigurations['2026-02-12'] = dailyCheckbox;
+  api.logs = [log('2026-02-12')];
+  const editor = await openRecord(page, '2026-02-12');
+  await expect(editor).toContainText('Objetivo original: Marcar completado');
+  expect(calls(api, '/habits/read/logs').some(c => c.search === '?startDate=2026-02-12&endDate=2026-02-12')).toBe(true);
+  await editor.getByLabel('Nota', { exact: true }).fill('Febrero');
+  await saveRecord(editor);
+  await expect(editor).toContainText('Registro actualizado.');
+  const reads = api.calls.filter(c => c.method === 'GET').length;
+  for (const date of ['', 'null', '2026-02-30', '2026-04-01', '2026-03-30T00:00:00.000Z', '0000-01-01']) {
+    await selectRecord(page, date);
+    await expect(editor.getByLabel('Nota', { exact: true })).toHaveCount(0);
+    await expect(editor).toContainText('Selecciona una fecha válida YYYY-MM-DD no posterior a hoy.');
+  }
+  expect(api.calls.filter(c => c.method === 'GET')).toHaveLength(reads);
+  expect(corrections(api)).toHaveLength(1);
+});
+
+for (const status of ['paused', 'archived']) {
+  test(`dated ${status} existing record corrects but empty week day is not a record`, async ({ page, api }) => {
+    Object.assign(api.habit, { status, active: true, configuration: dailyCheckbox });
+    api.logs = [log('2026-03-30')];
+    const editor = await openRecord(page);
+    await editor.getByLabel('Corregir progreso', { exact: true }).check();
+    await editor.getByLabel('Completado', { exact: true }).uncheck();
+    await saveRecord(editor);
+    await expect(editor).toContainText('Finalización guardada: Sin completar');
+    await selectRecord(page, '2026-03-29');
+    await expect(editor).toContainText('No hay registro en esta fecha.');
+    await expect(editor).toContainText('Un hábito inactivo no permite crear registros.');
+    await expect(editor.getByRole('button', { name: 'Guardar registro', exact: true })).toBeDisabled();
+    expect(corrections(api).map(c => c.body)).toEqual([{ completed: false }]);
+  });
+}
+
+test('missing dated record requires explicit progress and selected effective weekday; notes alone denied', async ({ page, api }) => {
+  api.habit.configuration = dailyCheckbox;
+  api.dateConfigurations['2026-03-30'] = { ...dailyCheckbox, schedule: { kind: 'weekdays', days: [2] } };
+  const editor = await openRecord(page);
+  await expect(editor).toContainText('La fecha no está programada.');
+  await editor.getByLabel('Nota', { exact: true }).fill('No crear');
+  await expect(editor.getByRole('button', { name: 'Guardar registro', exact: true })).toBeDisabled();
+  await selectRecord(page, '2026-03-31');
+  await expect(editor.getByLabel('Nota', { exact: true })).toBeVisible();
+  await editor.getByLabel('Nota', { exact: true }).fill('Sólo nota');
+  await expect(editor.getByRole('button', { name: 'Guardar registro', exact: true })).toBeDisabled();
+  await editor.getByLabel('Corregir progreso', { exact: true }).check();
+  await saveRecord(editor);
+  await expect(editor).toContainText('Registro actualizado.');
+  expect(corrections(api).map(c => c.body)).toEqual([{ completed: false, note: 'Sólo nota' }]);
+});
+
+test('dated rejected PATCH retains fields and 400/404/409 stay visible for retry', async ({ page, api }) => {
+  api.logs = [log('2026-03-30')];
+  const editor = await openRecord(page);
+  await editor.getByLabel('Nota', { exact: true }).fill('Retener');
+  for (const [status, message] of [[400, 'Revisa los datos'], [404, 'Registro o hábito no encontrado'], [409, 'El registro cambió']]) {
+    api.mutationStatus = status;
+    await saveRecord(editor);
+    await expect(editor.getByRole('alert')).toContainText(message);
+    await expect(editor.getByLabel('Nota', { exact: true })).toHaveValue('Retener');
+  }
+  api.mutationStatus = 200;
+  await saveRecord(editor);
+  await expect(editor).toContainText('Registro actualizado.');
+  expect(corrections(api)).toHaveLength(4);
+});
+
+for (const failed of ['selected', 'month', 'week']) {
+  test(`dated successful write with ${failed} read failure retries without duplicate PATCH`, async ({ page, api }) => {
+    api.logs = [log('2026-03-30')];
+    const editor = await openRecord(page);
+    await editor.getByLabel('Nota', { exact: true }).fill('Guardada');
+    api.beforeHistory = async params => {
+      api.historyStatus = failed === 'week' ? 200 : (failed === 'selected' ? params.has('startDate') : !params.has('startDate')) ? 500 : 200;
+    };
+    if (failed === 'week') api.weekStatus = 500;
+    await saveRecord(editor);
+    await expect(editor.getByRole('alert')).toContainText('El registro se guardó, pero no se pudo recargar');
+    await expect(editor.getByRole('button', { name: 'Guardar registro', exact: true })).toBeDisabled();
+    api.beforeHistory = async () => {}; api.historyStatus = api.weekStatus = 200;
+    await editor.getByRole('button', { name: 'Reintentar lecturas', exact: true }).click();
+    await expect(editor.getByRole('alert')).toHaveCount(0);
+    await expect(editor.getByLabel('Nota', { exact: true })).toHaveValue('Guardada');
+    expect(corrections(api)).toHaveLength(1);
+  });
+}
+
+test('selected date read race never flashes previous form and initial failure retries read only', async ({ page, api }) => {
+  api.logs = [{ ...log('2026-03-30'), note: 'Anterior' }, { ...log('2026-03-29'), note: 'Nueva' }];
+  const editor = await openRecord(page);
+  const held = deferred();
+  api.beforeHistory = params => params.get('startDate') === '2026-03-28' ? held.promise : Promise.resolve();
+  try {
+    await selectRecord(page, '2026-03-28');
+    await expect(editor.getByLabel('Nota', { exact: true })).toHaveCount(0);
+    await selectRecord(page, '2026-03-29');
+    await expect(editor.getByLabel('Nota', { exact: true })).toHaveValue('Nueva');
+  } finally { held.release(); }
+  await page.clock.runFor(500);
+  await expect(editor.getByLabel('Nota', { exact: true })).toHaveValue('Nueva');
+  api.historyStatus = 500;
+  await selectRecord(page, '2026-03-27');
+  await expect(editor.getByRole('alert')).toContainText('No se pudo cargar el registro');
+  api.historyStatus = 200;
+  await editor.getByRole('button', { name: 'Reintentar lecturas', exact: true }).click();
+  await expect(editor.getByLabel('Nota', { exact: true })).toBeVisible();
+  expect(corrections(api)).toHaveLength(0);
+});
+
+for (const stale of ['selection', 'route', 'logout', 'day', 'token']) {
+  test(`dated pending correction ignores stale ${stale} and does not refresh old context`, async ({ page, api }) => {
+    api.logs = [log('2026-03-30')];
+    const editor = await openRecord(page);
+    await editor.getByLabel('Nota', { exact: true }).fill('Tardía');
+    const held = deferred(); api.beforeMutation = () => held.promise;
+    try {
+      await saveRecord(editor);
+      await expect.poll(() => corrections(api).length).toBe(1);
+      if (stale === 'selection') { await selectRecord(page, '2026-03-29'); await expect(editor.getByLabel('Nota', { exact: true })).toHaveValue(''); }
+      if (stale === 'route') {
+        api.habit = { habitId: 'walk', title: 'Caminar autorizado', active: true };
+        await navigate(page, 'walk');
+        await expect(page.getByRole('heading', { name: 'Caminar autorizado', exact: true })).toBeVisible();
+        await expect(weekPanel(page).getByRole('row')).toHaveCount(8);
+      }
+      if (stale === 'logout') { await page.getByRole('button', { name: 'Salir', exact: true }).click(); await expect(page).toHaveURL(`${origin}/login`); }
+      if (stale === 'day') await page.clock.setSystemTime(new Date('2026-04-01T07:00:01Z'));
+      if (stale === 'token') await page.evaluate(() => localStorage.setItem('token', 'replacement'));
+      const reads = api.calls.filter(c => c.method === 'GET').length;
+      held.release();
+      await page.clock.runFor(500);
+      expect(api.calls.filter(c => c.method === 'GET')).toHaveLength(reads);
+      await expect(page.getByText('Registro actualizado.', { exact: true })).toHaveCount(0);
+    } finally { held.release(); }
+  });
+}
+
+test('selected date form waits for both real logs and date-effective week definition', async ({ page, api }) => {
+  api.logs = [log('2026-03-30')];
+  await page.goto(`${origin}/habits/read`);
+  await expect(weekPanel(page).getByRole('row')).toHaveCount(8);
+  const held = deferred(); api.beforeWeek = () => held.promise;
+  try {
+    await selectRecord(page);
+    await expect.poll(() => calls(api, '/habits/read/week').some(c => c.search === '?date=2026-03-30')).toBe(true);
+    await expect(historyEditor(page).getByLabel('Nota', { exact: true })).toHaveCount(0);
+  } finally { held.release(); }
+  await expect(historyEditor(page).getByLabel('Nota', { exact: true })).toBeVisible();
+});
+
+for (const kind of ['quantity', 'checkbox']) {
+  test(`unchanged opted-in ${kind} progress and opted-out draft only send changed note`, async ({ page, api }) => {
+    api.habit.configuration = kind === 'quantity' ? quantityGoal() : dailyCheckbox;
+    api.logs = [{ ...log('2026-03-30'), ...(kind === 'quantity' ? { amount: 7 } : {}) }];
+    const editor = await openRecord(page);
+    await editor.getByLabel('Corregir progreso', { exact: true }).check();
+    await editor.getByLabel('Nota', { exact: true }).fill('Nota nueva');
+    await saveRecord(editor);
+    await expect(editor).toContainText('Registro actualizado.');
+    await editor.getByLabel('Corregir progreso', { exact: true }).check();
+    if (kind === 'quantity') await editor.getByLabel('Cantidad corregida', { exact: true }).fill('50');
+    else await editor.getByLabel('Completado', { exact: true }).uncheck();
+    await editor.getByLabel('Corregir progreso', { exact: true }).uncheck();
+    await editor.getByLabel('Nota', { exact: true }).fill('Otra nota');
+    await saveRecord(editor);
+    await expect(editor.getByLabel('Nota', { exact: true })).toHaveValue('Otra nota');
+    expect(corrections(api).map(c => c.body)).toEqual([{ note: 'Nota nueva' }, { note: 'Otra nota' }]);
+    expect(api.logs[0].completed).toBe(true);
+  });
+}
+
+test('new past quantity uses date-effective goal; existing nonselected record remains correctable', async ({ page, api }) => {
+  api.habit.configuration = dailyCheckbox;
+  api.dateConfigurations['2026-02-12'] = quantityGoal(10, 'km', { kind: 'weekdays', days: [4] });
+  const editor = await openRecord(page, '2026-02-12');
+  await editor.getByLabel('Corregir progreso', { exact: true }).check();
+  await editor.getByLabel('Cantidad corregida', { exact: true }).fill('10.5');
+  await saveRecord(editor);
+  await expect(editor).toContainText('Finalización guardada: Completado');
+  expect(corrections(api)[0].body).toEqual({ amount: 10.5 });
+  expect(api.logs[0].configurationSnapshot.configuration.goal).toEqual({ kind: 'quantity', target: 10, unit: 'km' });
+  api.logs = [{ ...log('2026-03-30'), completed: false, configurationSnapshot: snapshot({ ...dailyCheckbox, schedule: { kind: 'weekdays', days: [7] } }) }];
+  await selectRecord(page, '2026-03-30');
+  await editor.getByLabel('Corregir progreso', { exact: true }).check();
+  await editor.getByLabel('Completado', { exact: true }).check();
+  await saveRecord(editor);
+  await expect(editor).toContainText('Finalización guardada: Completado');
+  expect(corrections(api)[1].body).toEqual({ completed: true });
+});
+
+test('changed local session rejects a dated submit before PATCH', async ({ page, api }) => {
+  api.logs = [log('2026-03-30')];
+  const editor = await openRecord(page);
+  await editor.getByLabel('Nota', { exact: true }).fill('No guardar');
+  await page.evaluate(() => localStorage.setItem('token', 'another-session'));
+  await saveRecord(editor);
+  expect(corrections(api)).toHaveLength(0);
+});
+
+test('dated stale account day rejects submit before PATCH; 401 uses session cleanup', async ({ page, api }) => {
+  api.logs = [log('2026-03-30')];
+  const editor = await openRecord(page);
+  await editor.getByLabel('Nota', { exact: true }).fill('Cambio');
+  await page.clock.setSystemTime(new Date('2026-04-01T07:00:01Z'));
+  await saveRecord(editor);
+  expect(corrections(api)).toHaveLength(0);
+  await page.clock.setSystemTime(new Date('2026-04-01T00:30:00Z'));
+  api.mutationStatus = 401;
+  await saveRecord(editor);
+  await expect(page).toHaveURL(`${origin}/login`);
+  expect(await page.evaluate(() => localStorage.getItem('token'))).toBeNull();
 });
 
 test.describe('account date differs from browser date', () => {

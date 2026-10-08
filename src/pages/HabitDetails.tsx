@@ -13,6 +13,7 @@ import Spinner from '../components/ui/Spinner';
 import EditHabitForm from '../components/habits/EditHabitForm';
 import { HabitConfigurationSummary, HabitMetadata } from '../components/habits/HabitCard';
 import HabitWeekPanel from '../components/habits/HabitWeekPanel';
+import HabitHistoryEditor from '../components/habits/HabitHistoryEditor';
 
 export default function HabitDetails() {
   const { id = '' } = useParams<{ id: string }>();
@@ -116,6 +117,20 @@ function HabitDetailView({ id, token, timeZone, today }: {
     } catch {
       if (current(request)) setProgressRefreshFailed(true);
     }
+  };
+  const onRecordUpdated = async (signal: AbortSignal): Promise<boolean> => {
+    const request = lifecycle.current;
+    if (!request || !current(request) || signal.aborted) return false;
+    setWeekRefresh(value => value + 1);
+    try {
+      const { data } = await getHabitLogs(id, undefined, signal);
+      data.forEach(log => calendarLabel(log.date));
+      if (!current(request) || signal.aborted) return false;
+      setLogs(data);
+      if (data.some(log => isToday(log.date) && log.completed)) markCompleted(id, timeZone);
+      else markIncomplete(id, timeZone);
+      return true;
+    } catch { return false; }
   };
   const retryProgress = async () => {
     const request = lifecycle.current;
@@ -318,6 +333,9 @@ function HabitDetailView({ id, token, timeZone, today }: {
             <button onClick={() => void retryProgress()} disabled={pending !== null} className='mt-2 text-primary disabled:opacity-50'>Reintentar registros</button>
           </div>}
           {habit && <HabitWeekPanel id={id} token={token} timeZone={timeZone} today={today} refreshKey={weekRefresh} />}
+
+          {habit && !isLoading && <HabitHistoryEditor habit={habit} token={token} timeZone={timeZone} today={today}
+            onRecordUpdated={onRecordUpdated} />}
 
           {/* Historial de logs */}
           <h2 className='mb-3 text-lg font-semibold text-dark-text'>

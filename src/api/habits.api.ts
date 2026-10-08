@@ -169,6 +169,15 @@ export interface UserLog {
 /** Obtiene todos los logs del usuario autenticado (incluye title y slug) */
 export const getUserLogs = () => apiClient.get<UserLog[]>('/habits/logs');
 
+/** Sólo progreso explícito o nota; nunca se envían snapshots desde el cliente. */
+export type UpdateHabitLogPayload =
+  | { note: string; amount?: never; completed?: never }
+  | { amount: number; note?: string; completed?: never }
+  | { completed: boolean; note?: string; amount?: never };
+
+export const updateHabitLog = (habitId: string, date: string, payload: UpdateHabitLogPayload, signal?: AbortSignal) =>
+  apiClient.patch<HabitLog>(`/habits/${habitId}/logs/${date}`, payload, { signal });
+
 /** Cantidad: reemplaza el total diario. Omitir amount conserva el checkbox sin cuerpo. */
 export const completeHabit = (habitId: string, amount?: number, signal?: AbortSignal) =>
   apiClient.post<HabitLog>(`/habits/${habitId}/complete`, amount === undefined ? undefined : { amount }, { signal });
