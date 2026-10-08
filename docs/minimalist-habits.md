@@ -20,4 +20,12 @@ Los hábitos antiguos funcionan con la misma casilla, aunque tengan cantidades u
 
 ## Alcance
 
-La simplificación de formularios, detalle y dashboard está implementada (M2–M3). Ya no hay configuración avanzada ni filtros de estado en el uso normal. La regresión final conjunta y las comprobaciones pendientes de integración corresponden a M4.
+La simplificación está completa: nombre, casilla de hoy, historial y ocultar/restaurar. Se retiraron los paneles y la lógica avanzada del frontend, con 768 líneas netas menos de código. La API conserva compatibilidad para los datos anteriores.
+
+## Verificación y límites
+
+- API: 653 pruebas unitarias y 123 HTTP con mocks, TypeScript y lint aprobados de forma independiente.
+- Frontend: 126 pruebas de navegador, TypeScript, lint y bundle en memoria aprobados de forma independiente. No se leyeron archivos de entorno ni se añadieron dependencias.
+- Pendiente: revisión visual manual, integración con MongoDB/Google reales y build generado de Nest. Las pruebas de navegador usan una API sintética.
+
+La evidencia y los commits están en el [registro de simplificación](../odd/tasks/minimalist-core.md).
