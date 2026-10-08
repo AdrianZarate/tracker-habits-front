@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { isAxiosError } from 'axios';
 import { ArrowLeft, PowerOff, Trash2 } from 'lucide-react';
-import { completeHabit, getHabitById, getHabitLogs, incompleteHabit, toggleHabit } from '../api/habits.api';
+import { completeHabit, getHabitById, getHabitLogs, incompleteHabit, isHabitActive, LEGACY_CONFIGURATION, toggleHabit } from '../api/habits.api';
 import type { HabitDetail, HabitLog } from '../api/habits.api';
 import { markCompleted, markIncomplete } from '../utils/dailyCompletions';
 import { calendarDay, calendarLabel, formatCalendarLabel } from '../utils/calendar';
@@ -10,6 +10,8 @@ import { useAuth } from '../hooks/useAuth';
 import { useCalendarDay } from '../hooks/useCalendarDay';
 import Navbar from '../components/layout/Navbar';
 import Spinner from '../components/ui/Spinner';
+import EditHabitForm from '../components/habits/EditHabitForm';
+import { HabitConfigurationSummary, HabitMetadata } from '../components/habits/HabitCard';
 
 export default function HabitDetails() {
   const { id = '' } = useParams<{ id: string }>();
@@ -34,6 +36,8 @@ function HabitDetailView({ id, token, timeZone, today }: {
   const [pending, setPending] = useState<string | null>(null);
   const [mutationError, setMutationError] = useState<string | null>(null);
   const [showConfirm, setShowConfirm] = useState(false);
+  const [showEdit, setShowEdit] = useState(false);
+  const [refreshFailed, setRefreshFailed] = useState(false);
   const lifecycle = useRef<AbortController | null>(null);
   const current = (request: AbortController) => !request.signal.aborted
     && localStorage.getItem('token') === token && calendarDay(new Date(), timeZone) === today;
@@ -72,15 +76,40 @@ function HabitDetailView({ id, token, timeZone, today }: {
     setError(null);
     setMutationError(null);
     setShowConfirm(false);
+    setShowEdit(false);
+    setRefreshFailed(false);
     setIsLoading(true);
     setAttempt(value => value + 1);
   };
   const isToday = (date: string) => calendarLabel(date) === today;
-  const ready = habit?.active && !isLoading && !error;
+  const active = habit ? isHabitActive(habit) : false;
+  const configuration = habit?.configuration ?? LEGACY_CONFIGURATION;
+  const quantity = configuration.goal.kind === 'quantity';
+  const ready = active && !isLoading && !error && !refreshFailed;
+  const refreshDefinition = async () => {
+    const request = lifecycle.current;
+    if (!request || !current(request)) return;
+    setPending('refresh');
+    setMutationError(null);
+    setRefreshFailed(false);
+    try {
+      const { data } = await getHabitById(id, request.signal);
+      if (current(request)) setHabit(data);
+    } catch (cause) {
+      if (!current(request)) return;
+      if (isAxiosError(cause) && cause.response?.status === 404) setMissing(true);
+      else {
+        setMutationError('Los cambios se guardaron, pero no se pudo recargar la definición.');
+        setRefreshFailed(true);
+      }
+    } finally {
+      if (current(request)) setPending(null);
+    }
+  };
   const completedToday = logs.some(log => isToday(log.date) && log.completed);
   const handleMutation = async (action: 'complete' | 'undo' | 'deactivate') => {
     const request = lifecycle.current;
-    if (!request || !current(request) || !ready || pending) return;
+    if (!request || !current(request) || !ready || pending || (action === 'complete' && quantity)) return;
     setPending(action);
     setMutationError(null);
     try {
@@ -152,9 +181,9 @@ function HabitDetailView({ id, token, timeZone, today }: {
                 )}
               </div>
 
-              <span className='text-sm text-dark-muted'>{habit.active ? 'Activo' : 'Inactivo'}</span>
+              <span className='text-sm text-dark-muted'>{active ? 'Activo' : 'Inactivo'}</span>
               {/* Sólo la asociación activa permite controles de seguimiento. */}
-              {habit.active && (!showConfirm ? (
+              {active && (!showConfirm ? (
                 <button
                   onClick={() => setShowConfirm(true)}
                   disabled={!ready || pending !== null}
@@ -184,15 +213,30 @@ function HabitDetailView({ id, token, timeZone, today }: {
                 </div>
               ))}
             </div>
+            <div className='mt-3 space-y-2'>
+              <HabitMetadata habit={habit} />
+              <p className='text-sm text-dark-muted'>Configuración actual: <HabitConfigurationSummary configuration={configuration} /></p>
+              {habit.pendingConfiguration && <div role='note' className='rounded-lg border border-primary/30 p-3 text-sm text-dark-text'>
+                <p>Desde el {habit.pendingConfiguration.effectiveFrom}: <HabitConfigurationSummary configuration={habit.pendingConfiguration.configuration} /></p>
+                <p className='mt-1 text-dark-muted'>Hasta esa fecha se mantiene la configuración actual. El historial conserva sus objetivos originales.</p>
+              </div>}
+              <button onClick={() => setShowEdit(true)} disabled={isLoading || pending !== null || refreshFailed}
+                className='text-primary disabled:opacity-50'>Editar hábito</button>
+            </div>
             {ready && !completedToday && (
-              <button onClick={() => handleMutation('complete')} disabled={pending !== null}
+              <button onClick={() => handleMutation('complete')} disabled={pending !== null || quantity}
+                aria-label={quantity ? 'Registro de cantidad pendiente' : undefined}
+                title={quantity ? 'El registro de cantidades estará disponible próximamente.' : undefined}
                 className='mt-4 text-primary disabled:opacity-50'>
-                {pending === 'complete' ? 'Completando...' : 'Completar hoy'}
+                {quantity ? 'Cantidad: próximamente' : pending === 'complete' ? 'Completando...' : 'Completar hoy'}
               </button>
             )}
           </div>
           )}
-          {mutationError && <p role='alert' className='mb-4 text-red-400'>{mutationError}</p>}
+          {mutationError && <div role='alert' className='mb-4 text-red-400'>
+            <p>{mutationError}</p>
+            {refreshFailed && <button onClick={() => void refreshDefinition()} className='mt-2 text-primary hover:underline'>Reintentar actualización</button>}
+          </div>}
 
           {/* Historial de logs */}
           <h2 className='mb-3 text-lg font-semibold text-dark-text'>
@@ -238,7 +282,7 @@ function HabitDetailView({ id, token, timeZone, today }: {
                       <span className='text-success text-sm font-semibold'>
                         ✓
                       </span>
-                      {habit?.active && isToday(log.date) && (
+                      {active && isToday(log.date) && (
                       <button
                         onClick={() => handleMutation('undo')}
                         disabled={pending !== null}
@@ -255,6 +299,10 @@ function HabitDetailView({ id, token, timeZone, today }: {
           )}
         </div>
       </div>
+      {showEdit && habit && <EditHabitForm habit={habit}
+        onClose={() => setShowEdit(false)}
+        onUpdated={() => { setShowEdit(false); void refreshDefinition(); }}
+      />}
     </>
   );
 }

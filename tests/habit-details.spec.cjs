@@ -26,7 +26,7 @@ const test = base.extend({
       const headers = { 'access-control-allow-origin': origin };
       const reply = (json, status = 200) => route.fulfill({ json, status, headers });
       if (['fetch', 'xhr'].includes(req.resourceType())) {
-        api.calls.push({ path: url.pathname, search: url.search, method });
+        api.calls.push({ path: url.pathname, search: url.search, method, body: req.postDataJSON() });
         if (method === 'GET' && url.pathname.endsWith('/auth/check-status')) return reply(profile);
         if (method === 'GET' && url.pathname.endsWith('/habits')) return reply([]);
         if (method === 'GET' && url.pathname.endsWith('/habits/logs')) return reply([]);
@@ -40,6 +40,21 @@ const test = base.extend({
           await api.beforeDetail();
           if (api.detailStatus === 0) return route.abort();
           return reply(habit, api.detailStatus);
+        }
+        if (method === 'PATCH' && url.pathname.endsWith('/habits/read/definition')) {
+          const body = req.postDataJSON();
+          await api.beforeMutation();
+          if (api.mutationStatus !== 200) return reply({ message: 'Synthetic failure' }, api.mutationStatus);
+          for (const field of ['title', 'category', 'color', 'icon']) {
+            if (field in body) {
+              if (body[field] === '') delete api.habit[field];
+              else api.habit[field] = body[field];
+            }
+          }
+          if (body.configuration) api.habit.pendingConfiguration = {
+            revisionId: 'pending-revision', effectiveFrom: '2026-04-01', configuration: body.configuration,
+          };
+          return reply({ ...api.habit });
         }
         if (['POST', 'DELETE', 'PATCH'].includes(method) && /\/habits\/read(?:\/(?:complete|incomplete))?$/.test(url.pathname)) {
           await api.beforeMutation();
@@ -92,6 +107,7 @@ test('navigation state cannot override owned detail or bypass missing/nonowner 4
     await expect(page.getByText('Hábito no encontrado.')).toBeVisible();
     await expect(title(page)).toHaveCount(0);
     await expect(page.getByText('Forged state')).toHaveCount(0);
+    await expect(page.getByRole('button', { name: 'Editar hábito', exact: true })).toHaveCount(0);
     expect(calls(api, `/habits/${id}/logs`)).toHaveLength(0);
   }
 });
@@ -247,6 +263,183 @@ test('late unmounted completion cannot refill cache after logout', async ({ page
   await page.clock.runFor(1000);
   expect(await page.evaluate(() => localStorage.getItem('completedHabits_2026-03-31'))).toBeNull();
   await expect(page.getByRole('alert')).toHaveCount(0);
+});
+
+const dailyCheckbox = { schedule: { kind: 'daily' }, goal: { kind: 'checkbox' } };
+// JSON property order and ISO-day ordering are not configuration changes.
+const pendingGoal = { schedule: { days: [7, 1], kind: 'weekdays' }, goal: { unit: 'páginas', target: 20, kind: 'quantity' } };
+async function openEdit(page) {
+  await page.goto(`${origin}/habits/read`);
+  await page.getByRole('button', { name: 'Editar hábito', exact: true }).click();
+  return page.getByRole('dialog', { name: 'Editar hábito', exact: true });
+}
+
+test('metadata-only edit initializes pending goal, clears only changed metadata and refreshes detail', async ({ page, api }) => {
+  Object.assign(api.habit, { category: 'Lectura', color: '#123abc', icon: 'unknown-icon', configuration: dailyCheckbox,
+    pendingConfiguration: { revisionId: 'existing', effectiveFrom: '2026-04-01', configuration: pendingGoal } });
+  api.logs = [log('2026-03-30')];
+  const dialog = await openEdit(page);
+  await expect(dialog.getByLabel('Frecuencia', { exact: true })).toHaveValue('weekdays');
+  await expect(dialog.getByLabel('Lunes', { exact: true })).toBeChecked();
+  await expect(dialog.getByLabel('Domingo', { exact: true })).toBeChecked();
+  await expect(dialog.getByLabel('Cantidad objetivo', { exact: true })).toHaveValue('20');
+  await expect(dialog.getByLabel('Icono', { exact: true })).toHaveValue('unknown-icon');
+  await dialog.getByLabel('Título', { exact: true }).fill('  Lectura personal  ');
+  for (const label of ['Categoría', 'Color', 'Icono']) await dialog.getByLabel(label, { exact: true }).fill('   ');
+  const before = calls(api, '/habits/read').length;
+  await dialog.getByRole('button', { name: 'Guardar cambios', exact: true }).click();
+  await expect(dialog).toHaveCount(0);
+  await expect(page.getByRole('heading', { name: 'Lectura personal', exact: true })).toBeVisible();
+  expect(calls(api, '/habits/read/definition', 'PATCH').map(c => c.body)).toEqual([
+    { title: 'Lectura personal', category: '', color: '', icon: '' },
+  ]);
+  expect(calls(api, '/habits/read').length).toBeGreaterThan(before);
+  await expect(page.getByText('Configuración actual: Diario · Marcar completado', { exact: true })).toBeVisible();
+  await expect(page.getByText(/Desde el 2026-04-01: Lunes, Domingo · 20 páginas por día/)).toBeVisible();
+  await expect(page.getByText('lunes, 30 de marzo de 2026')).toBeVisible();
+});
+
+test('configuration edit sends full bundle, keeps current goal and displays authoritative pending date', async ({ page, api }) => {
+  api.habit.configuration = dailyCheckbox;
+  const dialog = await openEdit(page);
+  await dialog.getByLabel('Frecuencia', { exact: true }).selectOption('weekly');
+  await dialog.getByLabel('Días por semana', { exact: true }).fill('3');
+  await dialog.getByLabel('Tipo de objetivo', { exact: true }).selectOption('quantity');
+  await dialog.getByLabel('Cantidad objetivo', { exact: true }).fill('15.5');
+  await dialog.getByLabel('Unidad', { exact: true }).fill(' minutos ');
+  await dialog.getByRole('button', { name: 'Guardar cambios', exact: true }).click();
+  await expect(dialog).toHaveCount(0);
+  expect(calls(api, '/habits/read/definition', 'PATCH')[0].body).toEqual({ configuration: {
+    schedule: { kind: 'weekly', timesPerWeek: 3 }, goal: { kind: 'quantity', target: 15.5, unit: 'minutos' },
+  } });
+  await expect(page.getByText('Configuración actual: Diario · Marcar completado', { exact: true })).toBeVisible();
+  await expect(page.getByText(/Desde el 2026-04-01: 3 días por semana · 15.5 minutos por día/)).toBeVisible();
+  // Pending quantity must not disable today's current checkbox goal.
+  await expect(page.getByRole('button', { name: 'Completar hoy', exact: true })).toBeEnabled();
+  await page.getByRole('button', { name: 'Completar hoy', exact: true }).click();
+  expect(calls(api, '/habits/read/complete', 'POST')[0].body).toBeNull();
+});
+
+test('quantity to checkbox edit omits irrelevant goal fields and sends the complete schedule', async ({ page, api }) => {
+  api.habit.configuration = pendingGoal;
+  const dialog = await openEdit(page);
+  await dialog.getByLabel('Tipo de objetivo', { exact: true }).selectOption('checkbox');
+  await dialog.getByRole('button', { name: 'Guardar cambios', exact: true }).click();
+  await expect(dialog).toHaveCount(0);
+  expect(calls(api, '/habits/read/definition', 'PATCH')[0].body).toEqual({ configuration: {
+    schedule: { kind: 'weekdays', days: [1, 7] }, goal: { kind: 'checkbox' },
+  } });
+  // Today's authoritative goal is still quantitative until the API's effective date.
+  await expect(page.getByRole('button', { name: 'Registro de cantidad pendiente', exact: true })).toBeDisabled();
+});
+
+test('legacy inactive owner can edit metadata without configuration or lifecycle mutation', async ({ page, api }) => {
+  api.habit.active = false;
+  const dialog = await openEdit(page);
+  await expect(dialog.getByLabel('Frecuencia', { exact: true })).toHaveValue('daily');
+  await expect(dialog.getByLabel('Tipo de objetivo', { exact: true })).toHaveValue('checkbox');
+  await dialog.getByLabel('Categoría', { exact: true }).fill(' Personal ');
+  await dialog.getByRole('button', { name: 'Guardar cambios', exact: true }).click();
+  await expect(dialog).toHaveCount(0);
+  expect(calls(api, '/habits/read/definition', 'PATCH')[0].body).toEqual({ category: 'Personal' });
+  expect(api.habit.active).toBe(false);
+  expect(calls(api, '/habits/read', 'PATCH')).toHaveLength(0);
+});
+
+test('edit rejection preserves form and history then supports retry; 404 is localized', async ({ page, api }) => {
+  api.logs = [log('2026-03-30')];
+  const dialog = await openEdit(page);
+  await dialog.getByLabel('Título', { exact: true }).fill('Título nuevo');
+  for (const status of [400, 404, 500]) {
+    api.mutationStatus = status;
+    await dialog.getByRole('button', { name: 'Guardar cambios', exact: true }).click();
+    await expect(dialog.getByRole('alert')).toContainText(status === 404 ? 'Hábito no encontrado' : status === 400 ? 'Revisa los datos' : 'No se pudo guardar');
+    await expect(dialog.getByLabel('Título', { exact: true })).toHaveValue('Título nuevo');
+    await expect(title(page)).toBeVisible();
+    await expect(page.getByText('lunes, 30 de marzo de 2026')).toBeVisible();
+  }
+  api.mutationStatus = 200;
+  await dialog.getByRole('button', { name: 'Guardar cambios', exact: true }).click();
+  await expect(dialog).toHaveCount(0);
+  await expect(page.getByRole('heading', { name: 'Título nuevo', exact: true })).toBeVisible();
+});
+
+test('current quantity definition disables binary completion and unknown metadata remains render-safe', async ({ page, api }) => {
+  Object.assign(api.habit, { icon: 'constructor', color: 'url(unsafe)', configuration: pendingGoal });
+  await page.goto(`${origin}/habits/read`);
+  await expect(page.getByRole('button', { name: 'Registro de cantidad pendiente', exact: true })).toBeDisabled();
+  await expect(page.getByRole('button', { name: 'Completar hoy', exact: true })).toHaveCount(0);
+  expect(calls(api, '/habits/read/complete', 'POST')).toHaveLength(0);
+});
+
+test('late definition response after route change cannot overwrite the new owned detail', async ({ page, api }) => {
+  const dialog = await openEdit(page);
+  await dialog.getByLabel('Título', { exact: true }).fill('Título tardío');
+  const pending = deferred();
+  api.beforeMutation = () => pending.promise;
+  try {
+    await dialog.getByRole('button', { name: 'Guardar cambios', exact: true }).click();
+    await expect.poll(() => calls(api, '/habits/read/definition', 'PATCH').length).toBe(1);
+    api.habit = { habitId: 'walk', title: 'Caminar autorizado', active: true };
+    await navigate(page, 'walk');
+    await expect(page.getByRole('heading', { name: 'Caminar autorizado', exact: true })).toBeVisible();
+  } finally { pending.release(); }
+  await page.clock.runFor(1000);
+  await expect(page.getByRole('heading', { name: 'Título tardío', exact: true })).toHaveCount(0);
+  await expect(page.getByRole('dialog')).toHaveCount(0);
+});
+
+test('saved definition refresh failure retains history and offers retry without another PATCH', async ({ page, api }) => {
+  api.logs = [log('2026-03-30')];
+  const dialog = await openEdit(page);
+  await dialog.getByLabel('Título', { exact: true }).fill('Guardado pendiente de recarga');
+  api.detailStatus = 500;
+  await dialog.getByRole('button', { name: 'Guardar cambios', exact: true }).click();
+  await expect(dialog).toHaveCount(0);
+  await expect(page.getByRole('alert')).toContainText('Los cambios se guardaron');
+  await expect(page.getByText('lunes, 30 de marzo de 2026')).toBeVisible();
+  api.detailStatus = 200;
+  await page.getByRole('button', { name: 'Reintentar actualización', exact: true }).click();
+  await expect(page.getByRole('heading', { name: 'Guardado pendiente de recarga', exact: true })).toBeVisible();
+  await expect(page.getByRole('alert')).toHaveCount(0);
+  expect(calls(api, '/habits/read/definition', 'PATCH')).toHaveLength(1);
+});
+
+test('unchanged edit and Escape cancel send no PATCH and restore focus to edit control', async ({ page, api }) => {
+  const dialog = await openEdit(page);
+  await dialog.getByRole('button', { name: 'Guardar cambios', exact: true }).click();
+  await expect(dialog).toHaveCount(0);
+  const edit = page.getByRole('button', { name: 'Editar hábito', exact: true });
+  await expect(edit).toBeFocused();
+  await edit.click();
+  await dialog.getByLabel('Título', { exact: true }).fill('No guardar');
+  await page.keyboard.press('Shift+Tab');
+  await expect(dialog.getByRole('button', { name: 'Cerrar formulario', exact: true })).toBeFocused();
+  await page.keyboard.press('Shift+Tab');
+  await expect(dialog.getByRole('button', { name: 'Guardar cambios', exact: true })).toBeFocused();
+  await page.keyboard.press('Tab');
+  await expect(dialog.getByRole('button', { name: 'Cerrar formulario', exact: true })).toBeFocused();
+  await page.keyboard.press('Escape');
+  await expect(dialog).toHaveCount(0);
+  await expect(edit).toBeFocused();
+  expect(calls(api, '/habits/read/definition', 'PATCH')).toHaveLength(0);
+});
+
+test('explicit inactive status wins over stale active boolean in detail', async ({ page, api }) => {
+  Object.assign(api.habit, { status: 'archived', active: true });
+  await page.goto(`${origin}/habits/read`);
+  await expect(title(page)).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Editar hábito', exact: true })).toBeEnabled();
+  await expect(page.getByRole('button', { name: /Completar hoy|Desactivar/ })).toHaveCount(0);
+});
+
+test('expired definition mutation performs full session cleanup', async ({ page, api }) => {
+  const dialog = await openEdit(page);
+  await dialog.getByLabel('Título', { exact: true }).fill('Cambio expirado');
+  api.mutationStatus = 401;
+  await dialog.getByRole('button', { name: 'Guardar cambios', exact: true }).click();
+  await expect(page).toHaveURL(`${origin}/login`);
+  expect(await page.evaluate(() => ['token', 'fullName', 'email', 'picture', 'timeZone', 'completedHabits_2026-03-31'].map(k => localStorage.getItem(k)))).toEqual(Array(6).fill(null));
 });
 
 test('expired detail uses existing full session cleanup', async ({ page, api }) => {
