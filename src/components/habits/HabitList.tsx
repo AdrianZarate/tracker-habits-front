@@ -11,7 +11,7 @@ interface HabitListProps {
 export default function HabitList({ habits, hasHidden, pendingIds, onLog }: HabitListProps) {
   if (habits.length === 0) {
     return (
-      <p className='py-12 text-center text-dark-muted'>
+      <p className='state-panel text-sm text-dark-muted'>
         {hasHidden ? 'No tienes hábitos activos. Puedes restaurar uno desde Hábitos ocultos.'
           : 'No tienes hábitos todavía. ¡Crea uno con el botón +!'}
       </p>

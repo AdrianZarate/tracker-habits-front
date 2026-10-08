@@ -15,12 +15,13 @@ export default function Input({
     <div className='flex flex-col gap-1'>
       {label && <label className='text-sm text-dark-muted'>{label}</label>}
       <input
-        className={`w-full rounded-lg bg-dark-bg px-4 py-2.5 text-dark-text outline-none ring-1 transition
-          ${error ? 'ring-red-400 focus:ring-red-400' : 'ring-dark-muted focus:ring-primary'}
+        className={`min-h-11 w-full min-w-0 rounded-lg border bg-dark-bg px-4 py-2.5 text-dark-text placeholder:text-dark-muted disabled:opacity-60
+          ${error ? 'border-red-300' : 'border-dark-border focus:border-dark-accent'}
+          aria-[invalid=true]:border-red-300
           ${className}`}
         {...props}
       />
-      {error && <p className='text-xs text-red-400'>{error}</p>}
+      {error && <p className='text-sm text-red-300'>{error}</p>}
     </div>
   );
 }

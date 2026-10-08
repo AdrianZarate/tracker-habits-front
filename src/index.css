@@ -3,18 +3,92 @@
 @tailwind utilities;
 
 :root {
-  --color-bg: #121212;
-  --color-card: #1e1e1e;
-  --color-primary: #6366f1;
-  --color-primary-hover: #4f46e5;
-  --color-success: #10b981;
-  --color-success-hover: #059669;
+  color-scheme: dark;
+  --color-bg: #0d1220;
+  --color-card: #171e30;
+  --color-primary: #4f46e5;
+  --color-primary-hover: #4338ca;
+  --color-success: #047857;
+  --color-success-hover: #065f46;
   --color-text: #f3f4f6;
-  --color-muted: #9ca3af;
+  --color-muted: #abb7d0;
 }
 
 @layer base {
   body {
     @apply bg-dark-bg text-dark-text font-sans antialiased;
+    background-image: linear-gradient(160deg, #161d35 0%, var(--color-bg) 55%);
+    background-attachment: fixed;
+    min-width: 0;
+  }
+
+  :where(button, a, input, summary, [tabindex]):focus-visible {
+    outline: 2px solid #a5b4fc;
+    outline-offset: 3px;
+  }
+
+  input[type='checkbox'] {
+    @apply h-5 w-5 shrink-0 accent-primary;
+  }
+
+  button:disabled {
+    cursor: not-allowed;
+  }
+}
+
+@layer components {
+  .page-shell {
+    @apply min-h-screen px-4 py-8 sm:py-12;
+  }
+
+  .surface {
+    @apply rounded-2xl border border-dark-border bg-dark-card;
+    box-shadow: inset 0 1px 0 #ffffff05, 0 4px 16px #00000014;
+  }
+
+  .ui-action {
+    @apply inline-flex min-h-11 items-center justify-center gap-2 rounded-lg px-4 py-2 text-sm font-semibold;
+  }
+
+  .secondary-action {
+    @apply ui-action border border-dark-border bg-dark-card text-dark-muted hover:bg-dark-bg hover:text-dark-text;
+  }
+
+  .today-toggle {
+    @apply flex min-h-11 items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium;
+    cursor: pointer;
+  }
+
+  .today-toggle:has(input:checked) {
+    color: #86efac;
+  }
+
+  .today-toggle:has(input:disabled) {
+    cursor: not-allowed;
+  }
+
+  [aria-busy='true'] .today-toggle:has(input:disabled) {
+    cursor: wait;
+  }
+
+  .state-panel {
+    @apply surface px-5 py-8 text-center leading-relaxed;
+  }
+
+  .history-row {
+    @apply surface flex flex-col gap-2 px-5 py-4 sm:flex-row sm:items-center sm:justify-between;
+  }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  :where(button, a, input, summary) {
+    transition: color 150ms ease, background-color 150ms ease, border-color 150ms ease;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation: none !important;
+    transition: none !important;
   }
 }

@@ -515,6 +515,125 @@ for (const context of ['session', 'account', 'day', 'route']) {
   });
 }
 
+async function expectTapTarget(locator) {
+  const box = await locator.boundingBox();
+  expect(box.height).toBeGreaterThanOrEqual(44);
+  expect(box.width).toBeGreaterThanOrEqual(44);
+}
+async function expectNoOverflow(page) {
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+}
+async function expectContrast(locator, surface = locator) {
+  const foreground = await locator.evaluate(el => getComputedStyle(el).color);
+  const background = await surface.evaluate(el => getComputedStyle(el).backgroundColor);
+  const luminance = color => color.match(/[\d.]+/g).slice(0, 3).map(Number)
+    .map(n => n / 255).map(n => n <= 0.04045 ? n / 12.92 : ((n + 0.055) / 1.055) ** 2.4)
+    .reduce((sum, n, i) => sum + n * [0.2126, 0.7152, 0.0722][i], 0);
+  const values = [luminance(foreground), luminance(background)].sort((a, b) => b - a);
+  expect((values[0] + 0.05) / (values[1] + 0.05)).toBeGreaterThanOrEqual(4.5);
+}
+
+test('presentation desktop has bordered cards, inline CTA, readable colors and keyboard focus', async ({ page, mockApi }, testInfo) => {
+  mockApi.habits.push({ habitId: 'walk', title: 'Caminar al aire libre' }, { habitId: 'sleep', title: 'Dormir a una hora regular' });
+  mockApi.logs = [{ habitId: 'walk', date: todayAnchor(), completed: true }];
+  await storeSession(page);
+  await page.goto(`${origin}/dashboard`);
+  await expect(todayCheck(page)).toBeEnabled();
+  const row = habitRow(page, 'Leer'), link = row.getByRole('link'), cta = page.getByRole('button', { name: 'Nuevo hábito', exact: true });
+  await expectTapTarget(row.locator('label'));
+  await expectTapTarget(cta);
+  expect(await row.evaluate(el => parseFloat(getComputedStyle(el).borderTopWidth))).toBeGreaterThanOrEqual(1);
+  expect(await row.evaluate(el => getComputedStyle(el).backgroundColor)).not.toBe('rgba(0, 0, 0, 0)');
+  expect(await cta.evaluate(el => getComputedStyle(el).position)).not.toBe('fixed');
+  await expectContrast(cta);
+  await expectContrast(link, row);
+  await expectContrast(row.locator('label'), row);
+  await expectContrast(page.getByText('1 de 3 completados hoy'), page.locator('body'));
+  await cta.hover();
+  await expectContrast(cta);
+  await link.focus();
+  await page.keyboard.press('Tab');
+  await expect(todayCheck(page)).toBeFocused();
+  expect(await todayCheck(page).evaluate(el => parseFloat(getComputedStyle(el).outlineWidth))).toBeGreaterThanOrEqual(2);
+  await expect(page.getByRole('heading', { level: 1 })).toBeVisible();
+  await expect(page.getByRole('combobox')).toHaveCount(0);
+  await page.screenshot({ path: testInfo.outputPath('dashboard-desktop.png'), fullPage: true });
+});
+
+for (const width of [375, 320]) {
+  test(`presentation dashboard ${width}px wraps long names and keeps hidden links and navbar reachable`, async ({ page, mockApi }, testInfo) => {
+    await page.setViewportSize({ width, height: 740 });
+    mockApi.habits = [{ habitId: 'read', title: 'Lectura'.repeat(28) }, { habitId: 'hidden', title: 'Descanso'.repeat(25), status: 'archived' }];
+    mockApi.session = { ...session, fullName: 'Nombre de usuario muy largo '.repeat(12) };
+    await storeSession(page);
+    await page.goto(`${origin}/dashboard`);
+    await expect(todayCheck(page, mockApi.habits[0].title)).toBeEnabled();
+    await expectTapTarget(habitRow(page, mockApi.habits[0].title).locator('label'));
+    await expectTapTarget(page.getByRole('button', { name: 'Salir', exact: true }));
+    const hidden = page.locator('details');
+    await expectTapTarget(hidden.locator('summary'));
+    await hidden.locator('summary').click();
+    await expectTapTarget(hidden.getByRole('link'));
+    await expectNoOverflow(page);
+    await expect(hidden.getByRole('checkbox')).toHaveCount(0);
+    await expect(page.getByRole('button', { name: 'Nuevo hábito', exact: true })).toBeVisible();
+    if (width === 375) {
+      mockApi.habits = [{ habitId: 'read', title: 'Leer por la noche' }, { habitId: 'walk', title: 'Caminar al aire libre' }, { habitId: 'hidden', title: 'Practicar guitarra', status: 'archived' }];
+      mockApi.logs = [{ habitId: 'walk', date: todayAnchor(), completed: true }];
+      await page.reload();
+      await expect(todayCheck(page, 'Caminar al aire libre')).toBeChecked();
+      await page.screenshot({ path: testInfo.outputPath('dashboard-mobile.png'), fullPage: true });
+    }
+  });
+}
+
+for (const width of [375, 320]) {
+  test(`presentation name form ${width}px stays scrollable with readable errors and 44px controls`, async ({ page, mockApi }, testInfo) => {
+    await page.setViewportSize({ width, height: 480 });
+    await openCreate(page);
+    const dialog = page.getByRole('dialog'), input = dialog.getByLabel('Título', { exact: true });
+    await expect(input).toBeFocused();
+    await expectTapTarget(input);
+    for (const button of await dialog.getByRole('button').all()) await expectTapTarget(button);
+    await input.fill('ab');
+    await dialog.getByRole('button', { name: 'Crear hábito', exact: true }).click();
+    await expect(dialog.getByRole('alert')).toBeVisible();
+    await expectContrast(dialog.getByRole('alert'), dialog);
+    await expectContrast(dialog.getByRole('button', { name: 'Crear hábito', exact: true }));
+    await expect(dialog.locator('input')).toHaveCount(1);
+    await expect(dialog.locator('select')).toHaveCount(0);
+    const box = await dialog.boundingBox();
+    expect(box.y).toBeGreaterThanOrEqual(0);
+    expect(box.y + box.height).toBeLessThanOrEqual(480);
+    expect(await dialog.evaluate(el => getComputedStyle(el).overflowY)).toBe('auto');
+    await expectNoOverflow(page);
+    expect(callsFor(mockApi, '/habits', 'POST')).toHaveLength(0);
+    if (width === 320) await page.screenshot({ path: testInfo.outputPath('habit-form-mobile.png'), fullPage: true });
+    await page.keyboard.press('Escape');
+    await expect(dialog).toHaveCount(0);
+  });
+}
+
+test('presentation pending and completed states preserve native checkbox and distinguish the card', async ({ page, mockApi }) => {
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  await openDashboard(page, mockApi);
+  const row = habitRow(page, 'Leer'), checkbox = todayCheck(page);
+  const originalBorder = await row.evaluate(el => getComputedStyle(el).borderTopColor);
+  const held = deferred(); mockApi.beforeMutation = () => held.promise;
+  try {
+    await checkbox.click();
+    await expect(checkbox).toBeDisabled();
+    await expect(row).toHaveAttribute('aria-busy', 'true');
+    expect(await row.locator('label').evaluate(el => getComputedStyle(el).cursor)).toBe('wait');
+  } finally { held.release(); }
+  await expect(checkbox).toBeChecked();
+  await expect(row).toHaveAttribute('aria-busy', 'false');
+  expect(await row.evaluate(el => getComputedStyle(el).borderTopColor)).not.toBe(originalBorder);
+  await expectContrast(row.locator('label'), row);
+  expect(await checkbox.evaluate(el => getComputedStyle(el).transitionDuration)).toBe('0s');
+  expect(mockApi.calls.filter(c => c.path.endsWith('/check'))).toHaveLength(1);
+});
+
 test('archive collision in create never sends lifecycle restore or hides the failure', async ({ page, mockApi }) => {
   await openCreate(page);
   mockApi.createStatus = 409;

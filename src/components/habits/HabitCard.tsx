@@ -9,11 +9,13 @@ interface HabitCardProps {
 
 export default function HabitCard({ habit, pending, onLog }: HabitCardProps) {
   return (
-    <li className='flex items-center justify-between gap-4 rounded-xl bg-dark-card px-5 py-4 shadow'>
-      <Link to={`/habits/${habit.habitId}`} className='min-w-0 break-words font-medium text-dark-text hover:underline'>
+    <li aria-busy={pending}
+      className={`surface flex min-w-0 flex-col gap-3 px-5 py-4 sm:flex-row sm:items-center sm:justify-between
+        ${habit.completedToday ? 'border-[#3f7763] bg-[#152b2b]' : ''}`}>
+      <Link to={`/habits/${habit.habitId}`} className='block min-h-11 min-w-0 flex-1 break-words py-2 text-base font-semibold leading-relaxed text-dark-text hover:underline'>
         {habit.title}
       </Link>
-      <label className='flex shrink-0 items-center gap-2 text-sm text-dark-text'>
+      <label className='today-toggle shrink-0 self-start bg-dark-bg/30 text-dark-muted sm:self-auto'>
         <input type='checkbox' checked={!!habit.completedToday} disabled={pending}
           onChange={() => onLog(habit.habitId, !!habit.completedToday)} />
         Completado hoy

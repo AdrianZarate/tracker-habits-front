@@ -135,63 +135,60 @@ function DashboardView({ email, token, timeZone, today }: {
     <>
       <Navbar />
 
-      <div className='min-h-screen bg-dark-bg px-4 py-8'>
-        {/* Saludo */}
-        <div className='mx-auto mb-6 max-w-2xl'>
-          <h1 className='text-2xl font-bold text-dark-text'>
-            {(() => {
-              const hour = new Date().getHours();
-              const greeting =
-                hour < 12
-                  ? 'Buenos días'
-                  : hour < 18
-                    ? 'Buenas tardes'
-                    : 'Buenas noches';
-              return `${greeting} 👋`;
-            })()}
-          </h1>
-          <p className='text-sm text-dark-muted'>
-            Estos son tus hábitos diarios
-          </p>
+      <div className='page-shell'>
+        {/* Saludo y acción principal */}
+        <div className='mx-auto mb-8 flex max-w-2xl flex-col gap-5 sm:flex-row sm:items-center sm:justify-between'>
+          <div className='min-w-0'>
+            <h1 className='text-3xl font-bold tracking-tight text-dark-text'>
+              {(() => {
+                const hour = new Date().getHours();
+                const greeting =
+                  hour < 12
+                    ? 'Buenos días'
+                    : hour < 18
+                      ? 'Buenas tardes'
+                      : 'Buenas noches';
+                return `${greeting} 👋`;
+              })()}
+            </h1>
+            <p className='mt-2 text-sm leading-relaxed text-dark-muted'>
+              Estos son tus hábitos diarios
+            </p>
+            {!isLoading && !error && activeHabits.length > 0 && <p className='mt-3 text-sm font-medium text-dark-muted'>
+              {completedCount} de {activeHabits.length} completados hoy
+            </p>}
+          </div>
+          <button onClick={() => setShowForm(true)} title='Nuevo hábito'
+            className='ui-action shrink-0 self-start bg-primary text-white hover:bg-primary-hover sm:self-auto'>
+            <Plus size={18} aria-hidden='true' />Nuevo hábito
+          </button>
         </div>
 
         {/* Content */}
         <main className='mx-auto max-w-2xl'>
           {isLoading && (
-            <div className='flex justify-center py-12'>
-              <Spinner />
+            <div role='status' aria-label='Cargando hábitos' className='state-panel flex items-center justify-center gap-3 text-sm text-dark-muted'>
+              <Spinner />Cargando hábitos...
             </div>
           )}
 
-          {error && <div role='alert' className='text-center text-red-400'>
+          {error && <div role='alert' className='state-panel text-red-300'>
             <p>{error}</p>
-            <button onClick={retry} className='mt-2 text-primary hover:underline'>Reintentar</button>
+            <button onClick={retry} className='ui-action mt-2 text-dark-accent hover:underline'>Reintentar</button>
           </div>}
-          {mutationError && <p role='alert' className='mb-4 text-center text-red-400'>{mutationError}</p>}
+          {mutationError && <p role='alert' className='state-panel mb-4 text-sm text-red-300'>{mutationError}</p>}
 
           {!isLoading && !error && <>
-            {activeHabits.length > 0 && <p className='mb-4 text-sm text-dark-muted'>
-              {completedCount} de {activeHabits.length} completados hoy
-            </p>}
             <HabitList habits={activeHabits} hasHidden={hiddenHabits.length > 0} pendingIds={pendingIds} onLog={handleLog} />
-            {hiddenHabits.length > 0 && <details className='mt-6 text-sm text-dark-muted'>
-              <summary className='cursor-pointer'>Hábitos ocultos</summary>
-              <ul className='mt-3 space-y-2'>
+            {hiddenHabits.length > 0 && <details className='mt-6 rounded-xl border border-dark-border px-4 py-2 text-sm text-dark-muted'>
+              <summary className='min-h-11 cursor-pointer rounded-lg py-3 font-medium hover:text-dark-text'>Hábitos ocultos</summary>
+              <ul className='mt-2 border-t border-dark-border pt-2'>
                 {hiddenHabits.map(habit => <li key={habit.habitId}>
-                  <Link to={`/habits/${habit.habitId}`} className='hover:text-dark-text hover:underline'>{habit.title}</Link>
+                  <Link to={`/habits/${habit.habitId}`} className='block min-h-11 min-w-0 break-words rounded-lg px-2 py-3 leading-relaxed hover:text-dark-text hover:underline'>{habit.title}</Link>
                 </li>)}
               </ul>
             </details>}
           </>}
-
-          {/* FAB */}
-          <button
-            onClick={() => setShowForm(true)}
-            className='fixed bottom-8 right-8 flex h-14 w-14 items-center justify-center rounded-full bg-primary shadow-lg transition hover:bg-primary-hover'
-            title='Nuevo hábito'
-          >
-            <Plus size={24} className='text-white' />
-          </button>
         </main>
       </div>
 

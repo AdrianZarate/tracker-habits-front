@@ -99,24 +99,24 @@ export default function HabitDefinitionForm({ habit, onSave, onSaved, onClose }:
   };
 
   return (
-    <div className='fixed inset-0 z-50 flex items-center justify-center bg-black/60 px-4'>
+    <div className='fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4'>
       <div ref={dialog} role='dialog' aria-modal='true' aria-labelledby={headingId} tabIndex={-1}
         onKeyDown={handleKeyboard}
-        className='max-h-[90dvh] w-full max-w-lg overflow-y-auto rounded-2xl bg-dark-card p-6 shadow-xl'>
-        <div className='mb-4 flex items-center justify-between'>
-          <h2 id={headingId} className='text-lg font-bold text-dark-text'>{habit ? 'Editar hábito' : 'Nuevo hábito'}</h2>
+        className='surface max-h-[calc(100dvh-2rem)] w-full max-w-lg overflow-y-auto p-5 shadow-xl sm:p-6'>
+        <div className='mb-6 flex items-center justify-between gap-3'>
+          <h2 id={headingId} className='text-xl font-bold tracking-tight text-dark-text'>{habit ? 'Editar hábito' : 'Nuevo hábito'}</h2>
           <button type='button' onClick={onClose} disabled={isLoading} aria-label='Cerrar formulario'
-            className='text-dark-muted transition hover:text-dark-text disabled:opacity-50'><X size={20} /></button>
+            className='secondary-action h-11 w-11 shrink-0 p-0 disabled:opacity-60'><X size={20} aria-hidden='true' /></button>
         </div>
-        <form onSubmit={handleSubmit} noValidate aria-busy={isLoading} className='space-y-4'>
-          <div className='space-y-1'>
-            <label htmlFor={titleId} className='text-sm text-dark-muted'>Título</label>
+        <form onSubmit={handleSubmit} noValidate aria-busy={isLoading} className='space-y-5'>
+          <div className='space-y-2'>
+            <label htmlFor={titleId} className='text-sm font-medium text-dark-text'>Título</label>
             <Input id={titleId} required value={title} disabled={isLoading} aria-invalid={!!error}
               aria-describedby={error ? errorId : undefined} onChange={event => { setTitle(event.target.value); setError(null); }}
               placeholder='Ej. Meditar 10 minutos' />
           </div>
-          {error && <p id={errorId} role='alert' className='text-sm text-red-400'>{error}</p>}
-          <div className='flex justify-end gap-3 pt-2'>
+          {error && <p id={errorId} role='alert' className='text-sm leading-relaxed text-red-300'>{error}</p>}
+          <div className='flex flex-wrap justify-end gap-3 border-t border-dark-border pt-5'>
             <Button variant='ghost' type='button' onClick={onClose} disabled={isLoading}>Cancelar</Button>
             <Button type='submit' isLoading={isLoading}>{habit ? 'Guardar cambios' : 'Crear hábito'}</Button>
           </div>

@@ -167,69 +167,70 @@ function HabitDetailView({ id, email, token, timeZone, today }: {
   if (missing) {
     return <div className='flex h-screen flex-col items-center justify-center bg-dark-bg gap-4'>
       <p className='text-dark-muted'>Hábito no encontrado.</p>
-      <button onClick={() => navigate('/dashboard')} className='text-primary hover:underline text-sm'>Volver al dashboard</button>
+      <button onClick={() => navigate('/dashboard')} className='ui-action text-dark-accent hover:underline'>Volver al dashboard</button>
     </div>;
   }
 
   return (
     <>
       <Navbar />
-      <main className='min-h-screen bg-dark-bg px-4 py-8'>
+      <main className='page-shell'>
         <div className='mx-auto max-w-2xl'>
           <button onClick={() => navigate('/dashboard')}
-            className='mb-6 flex items-center gap-2 text-dark-muted transition hover:text-dark-text'>
-            <ArrowLeft size={18} />Volver
+            className='ui-action mb-6 px-0 text-dark-muted hover:text-dark-text'>
+            <ArrowLeft size={18} aria-hidden='true' />Volver
           </button>
-          {habit && <div className='mb-6 rounded-2xl bg-dark-card p-6 shadow'>
-            <h1 className='mb-3 text-2xl font-bold text-dark-text'>{habit.title}</h1>
-            <div className='flex flex-wrap gap-4'>
+          {habit && <div className='surface mb-8 min-w-0 p-5 sm:p-6'>
+            <h1 className='mb-5 min-w-0 break-words text-2xl font-bold leading-snug tracking-tight text-dark-text sm:text-3xl'>{habit.title}</h1>
+            <div className='flex flex-wrap gap-3'>
               <button onClick={() => {
                 const request = requestRef.current;
                 if (request && current(request) && readable && !pending && !showConfirm) setShowEdit(true);
               }} disabled={!readable || pending !== null || !!showConfirm}
-                className='text-primary disabled:opacity-50'>Editar hábito</button>
+                className='secondary-action text-dark-accent disabled:opacity-60'>Editar hábito</button>
               <button onClick={() => { setMutationError(null); setShowConfirm(lifecycleTarget); }}
                 disabled={!readable || pending !== null || !!showConfirm || showEdit}
-                className='text-sm text-dark-muted disabled:opacity-50'>{active ? 'Ocultar hábito' : 'Restaurar hábito'}</button>
+                className='secondary-action disabled:opacity-60'>{active ? 'Ocultar hábito' : 'Restaurar hábito'}</button>
             </div>
             {showConfirm && <div role='dialog' aria-labelledby='lifecycle-heading'
-              className='mt-4 space-y-3 rounded-lg border border-primary/30 p-4'
+              className='mt-5 space-y-3 break-words rounded-xl border border-dark-border bg-dark-bg p-4'
               onKeyDown={event => { if (event.key === 'Escape' && !pending) setShowConfirm(null); }}>
               <h2 id='lifecycle-heading' className='font-semibold text-dark-text'>
                 {showConfirm === 'active' ? 'Restaurar hábito' : 'Ocultar hábito'}
               </h2>
               <p className='text-sm text-dark-muted'>¿Quieres {confirmVerb} «{habit.title}»? El historial se conserva.</p>
               <button onClick={() => void changeLifecycle()} disabled={pending !== null}
-                className='mr-3 text-primary disabled:opacity-50'>{pending === 'lifecycle' ? 'Guardando...' : `Sí, ${confirmVerb}`}</button>
+                className='ui-action mr-3 bg-primary text-white hover:bg-primary-hover disabled:opacity-60'>{pending === 'lifecycle' ? 'Guardando...' : `Sí, ${confirmVerb}`}</button>
               <button autoFocus onClick={() => setShowConfirm(null)} disabled={pending !== null}
-                className='text-dark-muted disabled:opacity-50'>Cancelar</button>
+                className='secondary-action disabled:opacity-60'>Cancelar</button>
             </div>}
-            <section aria-labelledby='today-heading' className='mt-5 space-y-2 text-sm text-dark-text'>
+            <section aria-labelledby='today-heading' aria-busy={pending === 'today'}
+              className='mt-6 space-y-3 border-t border-dark-border pt-6 text-sm text-dark-text'>
               <h2 id='today-heading' className='text-lg font-semibold'>Hoy</h2>
-              <p>Fecha de la cuenta: {today}</p>
-              <label className='flex items-center gap-2'>
+              <p className='text-dark-muted'>Fecha de la cuenta: {today}</p>
+              <label className={`today-toggle border ${completedToday ? 'border-[#3f7763] bg-[#152b2b]' : 'border-dark-border bg-dark-bg'}`}>
                 <input type='checkbox' checked={completedToday} onChange={() => void toggleToday()}
                   disabled={!ready || pending !== null} />
                 Completado hoy
               </label>
             </section>
           </div>}
-          {mutationError && <div role='alert' className='mb-4 text-red-400'>
+          {mutationError && <div role='alert' className='state-panel mb-4 text-sm text-red-300'>
             <p>{mutationError}</p>
             {refreshFailed && <button onClick={() => void refreshDefinition()} disabled={pending !== null}
-              className='mt-2 text-primary disabled:opacity-50'>Reintentar actualización</button>}
+              className='ui-action mt-2 text-dark-accent disabled:opacity-60'>Reintentar actualización</button>}
           </div>}
           <h2 className='mb-3 text-lg font-semibold text-dark-text'>Historial del mes actual de la cuenta</h2>
-          {isLoading && <div className='flex justify-center py-8'><Spinner /></div>}
-          {error && <div role='alert' className='text-center text-red-400'>
+          {isLoading && <div role='status' aria-label='Cargando historial' className='state-panel flex items-center justify-center gap-3 text-sm text-dark-muted'><Spinner />Cargando historial...</div>}
+          {error && <div role='alert' className='state-panel text-red-300'>
             <p>{error}</p>
-            <button onClick={retry} className='mt-2 text-primary hover:underline'>Reintentar</button>
+            <button onClick={retry} className='ui-action mt-2 text-dark-accent hover:underline'>Reintentar</button>
           </div>}
           {!isLoading && !error && (logs.length === 0
-            ? <p className='py-8 text-center text-dark-muted'>Aún no hay registros para este hábito.</p>
+            ? <p className='state-panel text-sm text-dark-muted'>Aún no hay registros para este hábito.</p>
             : <ul className='space-y-2'>
               {logs.slice().sort((a, b) => calendarLabel(b.date).localeCompare(calendarLabel(a.date))).map(log => (
-                <li key={log._id} className='flex items-center justify-between rounded-xl bg-dark-card px-5 py-3 shadow'>
+                <li key={log._id} className='history-row'>
                   <span className='text-sm text-dark-text'>{formatCalendarLabel(log.date)}</span>
                   <span className='text-sm text-dark-muted'>{log.completed ? 'Completado' : 'Sin completar'}</span>
                 </li>

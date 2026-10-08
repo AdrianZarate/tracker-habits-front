@@ -12,29 +12,29 @@ export default function Navbar() {
   };
 
   return (
-    <header className='sticky top-0 z-40 border-b border-dark-card bg-dark-bg/80 backdrop-blur'>
-      <div className='mx-auto flex max-w-2xl items-center justify-between px-4 py-4'>
+    <header className='sticky top-0 z-40 border-b border-dark-border bg-dark-bg/95 backdrop-blur'>
+      <div className='mx-auto flex max-w-2xl items-center justify-between gap-4 px-4 py-3'>
         {/* Logo */}
         <button
           onClick={() => navigate('/dashboard')}
-          className='flex items-center gap-2 font-bold text-dark-text'
+          className='flex min-h-11 shrink-0 items-center gap-2 font-bold tracking-tight text-dark-text'
         >
-          <CheckSquare size={20} className='text-primary' />
+          <CheckSquare size={22} aria-hidden='true' className='text-dark-accent' />
           HabitTracker
         </button>
 
         {/* Usuario y logout */}
         {user && (
-          <div className='flex items-center gap-4'>
-            <span className='hidden text-sm text-dark-muted sm:block'>
+          <div className='flex min-w-0 items-center justify-end gap-3'>
+            <span className='hidden min-w-0 truncate text-sm text-dark-muted sm:block'>
               {user.fullName}
             </span>
             <button
               onClick={handleLogout}
               title='Cerrar sesión'
-              className='flex items-center gap-1.5 rounded-lg bg-dark-card px-3 py-1.5 text-sm text-dark-muted transition hover:text-dark-text'
+              className='secondary-action shrink-0 px-3'
             >
-              <LogOut size={15} />
+              <LogOut size={16} aria-hidden='true' />
               Salir
             </button>
           </div>

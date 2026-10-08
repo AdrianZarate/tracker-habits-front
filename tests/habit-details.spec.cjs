@@ -634,6 +634,41 @@ test('returned inactive lifecycle status wins over stale active boolean', async 
   await expect(check(page)).toBeDisabled();
 });
 
+for (const width of [375, 320]) {
+  test(`presentation detail ${width}px wraps title and history without losing today or lifecycle controls`, async ({ page, api }, testInfo) => {
+    await page.setViewportSize({ width, height: 740 });
+    api.habit.title = 'Lectura'.repeat(28);
+    api.logs = [log('2026-03-30'), { ...log('2026-03-29'), completed: false }];
+    await page.goto(`${origin}/habits/read`);
+    await expect(check(page)).toBeEnabled();
+    await expect(page.getByRole('heading', { name: api.habit.title, exact: true })).toBeVisible();
+    for (const locator of [check(page).locator('..'), page.getByRole('button', { name: 'Volver', exact: true }),
+      page.getByRole('button', { name: 'Editar hábito', exact: true }), page.getByRole('button', { name: 'Ocultar hábito', exact: true })]) {
+      const box = await locator.boundingBox();
+      expect(box.height).toBeGreaterThanOrEqual(44);
+      expect(box.width).toBeGreaterThanOrEqual(44);
+    }
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+    const history = page.getByRole('listitem');
+    await expect(history).toHaveCount(2);
+    expect(await history.first().evaluate(el => parseFloat(getComputedStyle(el).borderTopWidth))).toBeGreaterThanOrEqual(1);
+    await expect(history.getByRole('button')).toHaveCount(0);
+    await expect(page.getByRole('heading', { name: 'Hoy', exact: true })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Historial del mes actual de la cuenta', exact: true })).toBeVisible();
+    if (width === 375) {
+      api.habit.title = 'Leer por la noche';
+      await page.reload();
+      await expect(page.getByRole('heading', { name: 'Leer por la noche', exact: true })).toBeVisible();
+      await expect(check(page)).toBeEnabled();
+      await page.screenshot({ path: testInfo.outputPath('habit-detail-mobile.png'), fullPage: true });
+    }
+    await page.getByRole('button', { name: 'Ocultar hábito', exact: true }).click();
+    await expect(page.getByRole('dialog')).toContainText('El historial se conserva.');
+    await page.getByRole('button', { name: 'Cancelar', exact: true }).click();
+    expect(writes(api)).toHaveLength(0);
+  });
+}
+
 test.describe('account date differs from browser date', () => {
   test.use({ timezoneId: 'Asia/Tokyo' });
   test('manual check uses account day; focus after midnight discards old data without schedule gates', async ({ page, api }) => {

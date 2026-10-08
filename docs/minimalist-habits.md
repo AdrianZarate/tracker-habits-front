@@ -10,6 +10,8 @@ Crea hábitos con un nombre, marca hoy y consulta un historial sencillo. El dash
 4. Pulsa el nombre para abrir el historial del mes actual de tu cuenta. Usa **Editar hábito** para cambiar sólo el nombre.
 5. En el detalle, pulsa **Ocultar hábito** y confirma. Para recuperarlo, abre **Hábitos ocultos** en el dashboard, pulsa su nombre y confirma **Restaurar hábito** en el detalle.
 
+**Nuevo hábito** aparece junto al saludo, sin tapar las tarjetas. La casilla conserva su estado nativo y las tarjetas completadas añaden un borde verde discreto. Los nombres largos se ajustan en móvil; los controles tienen áreas cómodas y foco visible de teclado.
+
 El recuento de hoy incluye sólo hábitos activos y usa la finalización guardada, sin sumar cantidades. Los hábitos antiguos pausados también aparecen entre los ocultos; abrir esa sección no cambia su estado ni sus registros.
 
 ## Datos anteriores y errores
@@ -25,7 +27,7 @@ La simplificación está completa: nombre, casilla de hoy, historial y ocultar/r
 ## Verificación y límites
 
 - API: 653 pruebas unitarias y 123 HTTP con mocks, TypeScript y lint aprobados de forma independiente.
-- Frontend: 126 pruebas de navegador, TypeScript, lint y bundle en memoria aprobados de forma independiente. No se leyeron archivos de entorno ni se añadieron dependencias.
+- Frontend: 126 pruebas de comportamiento y 8 de presentación aprobadas con API sintética. Las de presentación comprueban áreas de 44 px, foco, contraste, estados y ausencia de desbordamiento a 375/320 px; capturan cuatro imágenes fuera del repositorio. TypeScript, lint y bundle en memoria del núcleo aprobados de forma independiente. No se leyeron archivos de entorno ni se añadieron dependencias.
 - Pendiente: revisión visual manual, integración con MongoDB/Google reales y build generado de Nest. Las pruebas de navegador usan una API sintética.
 
 La evidencia y los commits están en el [registro de simplificación](../odd/tasks/minimalist-core.md).

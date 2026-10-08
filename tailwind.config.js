@@ -4,22 +4,24 @@ export default {
   theme: {
     extend: {
       fontFamily: {
-        sans: ['Inter', 'sans-serif'],
+        sans: ['ui-sans-serif', 'system-ui', '-apple-system', 'BlinkMacSystemFont', 'Segoe UI', 'sans-serif'],
       },
       colors: {
         dark: {
-          bg: '#121212', // Fondo principal
-          card: '#1E1E1E', // Fondo de tarjetas/modales
-          text: '#F3F4F6', // Texto principal
-          muted: '#9CA3AF', // Texto secundario
+          bg: '#0D1220', // Midnight
+          card: '#171E30', // Superficies
+          border: '#34415B',
+          accent: '#A5B4FC', // Enlaces y foco sobre superficies oscuras
+          text: '#F3F4F6',
+          muted: '#ABB7D0',
         },
         primary: {
-          DEFAULT: '#6366F1', // Indigo
-          hover: '#4F46E5',
+          DEFAULT: '#4F46E5', // Indigo: contraste con texto blanco
+          hover: '#4338CA',
         },
         success: {
-          DEFAULT: '#10B981', // Esmeralda para hábitos completados
-          hover: '#059669',
+          DEFAULT: '#047857',
+          hover: '#065F46',
         },
       },
     },
