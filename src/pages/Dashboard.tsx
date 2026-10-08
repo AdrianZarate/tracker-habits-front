@@ -1,14 +1,14 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Plus } from 'lucide-react';
+import { Link } from 'react-router-dom';
 import {
   getHabits,
   getUserLogs,
-  completeHabit,
+  checkHabit,
   incompleteHabit,
   isHabitActive,
-  LEGACY_CONFIGURATION,
 } from '../api/habits.api';
-import type { Habit, HabitStatusFilter } from '../api/habits.api';
+import type { Habit } from '../api/habits.api';
 import Navbar from '../components/layout/Navbar';
 import HabitList from '../components/habits/HabitList';
 import CreateHabitForm from '../components/habits/CreateHabitForm';
@@ -16,27 +16,28 @@ import Spinner from '../components/ui/Spinner';
 import { markCompleted, markIncomplete } from '../utils/dailyCompletions';
 import { useAuth } from '../hooks/useAuth';
 import { useCalendarDay } from '../hooks/useCalendarDay';
-import { calendarDay } from '../utils/calendar';
+import { calendarDay, calendarLabel } from '../utils/calendar';
 
 export default function Dashboard() {
   const { user, token } = useAuth();
   const timeZone = user?.timeZone ?? 'UTC';
   const today = useCalendarDay(timeZone);
-  const [status, setStatus] = useState<HabitStatusFilter>('active');
-  // Retira la lista anterior antes de pintar otro filtro, cuenta o día.
-  return <DashboardView key={JSON.stringify([user?.email, token, timeZone, today, status])}
-    email={user?.email ?? ''} token={token} timeZone={timeZone} today={today} status={status} onStatus={setStatus} />;
+  // Retira la lista anterior antes de pintar otra cuenta o día.
+  return <DashboardView key={JSON.stringify([user?.email, token, timeZone, today])}
+    email={user?.email ?? ''} token={token} timeZone={timeZone} today={today} />;
 }
 
-function DashboardView({ email, token, timeZone, today, status, onStatus }: {
+function DashboardView({ email, token, timeZone, today }: {
   email: string; token: string | null; timeZone: string; today: string;
-  status: HabitStatusFilter; onStatus: (status: HabitStatusFilter) => void;
 }) {
   const requestRef = useRef<AbortController | null>(null);
   const habitsRef = useRef<Habit[]>([]);
   const [habits, setHabits] = useState<Habit[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [mutationError, setMutationError] = useState<string | null>(null);
+  const pendingRef = useRef(new Set<string>());
+  const [pendingIds, setPendingIds] = useState<ReadonlySet<string>>(new Set());
   const [showForm, setShowForm] = useState(false);
 
   const currentRequest = useCallback((request: AbortController) => requestRef.current === request
@@ -49,19 +50,25 @@ function DashboardView({ email, token, timeZone, today, status, onStatus }: {
     const request = new AbortController();
     requestRef.current = request;
     habitsRef.current = [];
-    // Una sola petición trae los logs; se enriquece sólo el filtro vigente.
-    Promise.all([getHabits(status, request.signal), getUserLogs(request.signal)])
+    pendingRef.current.clear();
+    setPendingIds(new Set());
+    setHabits([]);
+    setIsLoading(true);
+    setError(null);
+    setMutationError(null);
+    // Lee todas las asociaciones una vez; abrir hábitos ocultos no hace peticiones.
+    Promise.all([getHabits('all', request.signal), getUserLogs(request.signal)])
       .then(([{ data: habits }, { data: logs }]) => {
         if (!currentRequest(request)) return;
         // Set de habitIds completados HOY
         const completedIds = new Set(
           logs
-            .filter((l) => l.date.startsWith(today) && l.completed)
+            .filter((l) => calendarLabel(l.date) === today && l.completed)
             .map((l) => l.habitId),
         );
 
         const enriched = habits.map((h) => {
-          const done = completedIds.has(h.habitId);
+          const done = isHabitActive(h) && completedIds.has(h.habitId);
           if (done) markCompleted(h.habitId, timeZone);
           else markIncomplete(h.habitId, timeZone);
           return { ...h, completedToday: done };
@@ -73,7 +80,7 @@ function DashboardView({ email, token, timeZone, today, status, onStatus }: {
       })
       .catch(() => { if (currentRequest(request)) setError('No se pudieron cargar los hábitos.'); })
       .finally(() => { if (currentRequest(request)) setIsLoading(false); });
-  }, [status, currentRequest, timeZone, today]);
+  }, [currentRequest, timeZone, today]);
 
   useEffect(() => {
     fetchHabits();
@@ -85,17 +92,20 @@ function DashboardView({ email, token, timeZone, today, status, onStatus }: {
     const trackable = () => {
       const habit = habitsRef.current.find(h => h.habitId === id);
       return request && currentRequest(request) && habit && isHabitActive(habit)
-        && (habit.configuration ?? LEGACY_CONFIGURATION).goal.kind === 'checkbox';
+        && !!habit.completedToday === completedToday;
     };
-    // La protección del callback es independiente del botón de la tarjeta.
-    if (!request || !trackable()) return;
+    // Protege también callbacks antiguos, registros ocultos y dobles envíos.
+    if (!request || !trackable() || pendingRef.current.has(id)) return;
+    pendingRef.current.add(id);
+    setPendingIds(new Set(pendingRef.current));
+    setMutationError(null);
     try {
       let done: boolean;
       if (completedToday) {
         await incompleteHabit(id, request.signal);
         done = false;
       } else {
-        const { data } = await completeHabit(id, undefined, request.signal);
+        const { data } = await checkHabit(id, request.signal);
         done = data.completed;
       }
       if (!trackable()) return;
@@ -104,8 +114,21 @@ function DashboardView({ email, token, timeZone, today, status, onStatus }: {
       habitsRef.current = habitsRef.current.map(h => h.habitId === id ? { ...h, completedToday: done } : h);
       setHabits(habitsRef.current);
     } catch {
-      if (trackable()) setError('Error al actualizar el hábito.');
+      if (trackable()) setMutationError('Error al actualizar el hábito.');
+    } finally {
+      if (currentRequest(request)) {
+        pendingRef.current.delete(id);
+        setPendingIds(new Set(pendingRef.current));
+      }
     }
+  };
+
+  const activeHabits = habits.filter(isHabitActive);
+  const hiddenHabits = habits.filter(habit => !isHabitActive(habit));
+  const completedCount = activeHabits.filter(habit => habit.completedToday).length;
+  const retry = () => {
+    const request = requestRef.current;
+    if (request && currentRequest(request)) fetchHabits();
   };
 
   return (
@@ -134,28 +157,32 @@ function DashboardView({ email, token, timeZone, today, status, onStatus }: {
 
         {/* Content */}
         <main className='mx-auto max-w-2xl'>
-          <div className='mb-4 text-sm text-dark-text'>
-            <label htmlFor='habit-status'>Estado de los hábitos</label>
-            <select id='habit-status' value={status} onChange={event => onStatus(event.target.value as HabitStatusFilter)}
-              className='ml-3 rounded-lg border border-dark-muted bg-dark-card p-2'>
-              <option value='active'>Activos</option>
-              <option value='paused'>Pausados</option>
-              <option value='archived'>Archivados</option>
-              <option value='all'>Todos</option>
-            </select>
-          </div>
           {isLoading && (
             <div className='flex justify-center py-12'>
               <Spinner />
             </div>
           )}
 
-          {error && <p className='text-center text-red-400'>{error}</p>}
+          {error && <div role='alert' className='text-center text-red-400'>
+            <p>{error}</p>
+            <button onClick={retry} className='mt-2 text-primary hover:underline'>Reintentar</button>
+          </div>}
+          {mutationError && <p role='alert' className='mb-4 text-center text-red-400'>{mutationError}</p>}
 
-          {!isLoading && !error && (
-            habits.length ? <HabitList habits={habits} onLog={handleLog} />
-              : <p className='py-12 text-center text-dark-muted'>No hay hábitos en este estado.</p>
-          )}
+          {!isLoading && !error && <>
+            {activeHabits.length > 0 && <p className='mb-4 text-sm text-dark-muted'>
+              {completedCount} de {activeHabits.length} completados hoy
+            </p>}
+            <HabitList habits={activeHabits} hasHidden={hiddenHabits.length > 0} pendingIds={pendingIds} onLog={handleLog} />
+            {hiddenHabits.length > 0 && <details className='mt-6 text-sm text-dark-muted'>
+              <summary className='cursor-pointer'>Hábitos ocultos</summary>
+              <ul className='mt-3 space-y-2'>
+                {hiddenHabits.map(habit => <li key={habit.habitId}>
+                  <Link to={`/habits/${habit.habitId}`} className='hover:text-dark-text hover:underline'>{habit.title}</Link>
+                </li>)}
+              </ul>
+            </details>}
+          </>}
 
           {/* FAB */}
           <button

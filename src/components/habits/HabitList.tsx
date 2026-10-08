@@ -3,14 +3,17 @@ import HabitCard from './HabitCard';
 
 interface HabitListProps {
   habits: Habit[];
+  hasHidden: boolean;
+  pendingIds: ReadonlySet<string>;
   onLog: (id: string, completedToday: boolean) => void;
 }
 
-export default function HabitList({ habits, onLog }: HabitListProps) {
+export default function HabitList({ habits, hasHidden, pendingIds, onLog }: HabitListProps) {
   if (habits.length === 0) {
     return (
       <p className='py-12 text-center text-dark-muted'>
-        No tienes hábitos todavía. ¡Crea uno con el botón +!
+        {hasHidden ? 'No tienes hábitos activos. Puedes restaurar uno desde Hábitos ocultos.'
+          : 'No tienes hábitos todavía. ¡Crea uno con el botón +!'}
       </p>
     );
   }
@@ -18,7 +21,7 @@ export default function HabitList({ habits, onLog }: HabitListProps) {
   return (
     <ul className='space-y-3'>
       {habits.map((habit) => (
-        <HabitCard key={habit.habitId} habit={habit} onLog={onLog} />
+        <HabitCard key={habit.habitId} habit={habit} pending={pendingIds.has(habit.habitId)} onLog={onLog} />
       ))}
     </ul>
   );

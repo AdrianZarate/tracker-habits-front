@@ -1,5 +1,7 @@
 # Configurar y registrar tus hábitos personales
 
+> **Guía histórica de compatibilidad, no de la interfaz actual.** Para el uso normal, consulta [Hábitos sin configuración](minimalist-habits.md): nombre, casilla de hoy, historial y hábitos ocultos. La API conserva los contratos avanzados y los datos antiguos descritos aquí; sus controles de cantidad, configuración, corrección, semana y filtros ya no forman parte de la interfaz habitual. La evidencia de pruebas inferior corresponde al cierre histórico de Stage 3, no a la cobertura actual del núcleo minimalista.
+
 Puedes crear y editar tus hábitos, filtrar por estado, pausar o archivar sin perder historial, registrar la cantidad de hoy, corregir registros por fecha y consultar siete días con sus objetivos originales. Los cambios no afectan a otras personas ni recalculan la finalización guardada del historial.
 
 ## Crear o editar

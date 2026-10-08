@@ -49,7 +49,7 @@ async function clean(page) {
   expect(await page.evaluate(() => Object.keys(localStorage).filter(k => /^completedHabits_\d{4}-\d{2}-\d{2}$/.test(k)))).toEqual([]);
   expect(await page.evaluate(() => [localStorage.getItem('unrelated'), localStorage.getItem('completedHabits_notes')])).toEqual(['keep', 'keep']);
 }
-const done = page => page.getByRole('listitem').filter({ has: page.getByText('Leer', { exact: true }) }).getByRole('button', { name: '✓ Hecho', exact: true });
+const done = page => page.getByRole('listitem').filter({ has: page.getByText('Leer', { exact: true }) }).getByRole('checkbox', { name: 'Completado hoy', exact: true });
 const count = api => api.calls.filter(c => c.path.endsWith('/habits')).length;
 
 test('Google posts detected browser zone but persists stable account zone and clears old cache', async ({ page, api }) => {
@@ -71,14 +71,14 @@ test('account day controls dashboard despite browser zone; midnight and focus re
   await page.clock.install({ time: new Date('2026-03-09T06:59:59Z') });
   api.logs = [{ habitId: 'read', date: '2026-03-08T00:00:00.000Z', completed: true }];
   await page.goto(`${origin}/dashboard`);
-  await expect(done(page)).toBeVisible();
+  await expect(done(page)).toBeChecked();
   expect(await page.evaluate(() => localStorage.getItem('timeZone'))).toBe(profile.timeZone);
   expect(await page.evaluate(() => JSON.parse(localStorage.getItem('completedHabits_2026-03-08')))).toContain('read');
   const before = count(api);
   const statusCalls = api.calls.filter(c => c.path.endsWith('/auth/check-status')).length;
   await page.clock.runFor(1100);
   await expect.poll(() => count(api)).toBeGreaterThan(before);
-  await expect(done(page)).toHaveCount(0);
+  await expect(done(page)).not.toBeChecked();
   const after = count(api);
   await page.getByRole('button', { name: 'Nuevo hábito', exact: true }).click();
   await page.clock.runFor(1000);
