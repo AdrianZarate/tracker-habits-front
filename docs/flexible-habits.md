@@ -110,3 +110,36 @@ El detalle se obtiene de la asociación autenticada antes de ofrecer edición o 
 Consulta el [contrato de la API](../../api/docs/personal-habits.md) para los detalles de fechas efectivas y objetivos históricos.
 
 Las pruebas en `tests/auth-dashboard.spec.cjs` y `tests/habit-details.spec.cjs` usan rutas sintéticas: payloads, cero y valores inválidos, reemplazo de cantidades, snapshots frente a definición actual/pendiente, cantidades antiguas desconocidas, semanas vacías y cambios de unidad a mitad de semana, notas sin pérdida de cantidades antiguas, borrado y omisión de notas sin cambios, checkbox `false`, fechas inválidas/futuras y meses anteriores, corrección inactiva, creación explícita, reintentos de lecturas sin repetir mutaciones, carreras de selección, actividad/días programados, propiedad, sesión, teclado y cambio de día en la zona de la cuenta, filtros y listas vacías, confirmación/cancelación de cada transición, conservación del detalle con respuestas de asociación antiguas, errores de estado y carreras de filtro/lectura/mutación. No verifican datos reales, MongoDB, concurrencia ni OAuth real.
+
+## Cierre automatizado de Stage 3 (T7)
+
+El código y la aceptación automatizada de Stage 3 están completos; **la validación en producción sigue pendiente**. El [registro ODD canónico](../odd/tasks/flexible-habits.md) conserva la evidencia y el seguimiento, sin ampliar el alcance a Stage 4.
+
+### Aceptación y dónde comprobarla
+
+Estas pruebas usan datos sintéticos o mocks; no constituyen una comprobación visual real ni de producción.
+
+| Criterio | Cobertura determinista (rutas de pruebas) |
+| --- | --- |
+| Propiedad autenticada | IDs ajenos sin datos privados: API `src/habits/habits.service.spec.ts`, `test/app.e2e-spec.ts`; frontend `tests/habit-details.spec.cjs`. |
+| Compatibilidad antigua | Valores diarios/binarios y cantidades desconocidas sin inventar datos: API `src/habits/habits.service.spec.ts`; frontend `tests/habit-details.spec.cjs`. |
+| Objetivos originales | Snapshots, correcciones y finalización histórica conservados: API `src/habits/habits.service.spec.ts`, `src/habits/configuration/habit-week.spec.ts`; frontend `tests/habit-details.spec.cjs`. |
+| Frecuencia y cantidad | Días seleccionados, cuota de días completados, validación y reemplazo del total diario: API `src/habits/configuration/habit-configuration.spec.ts`, `src/habits/habits.service.spec.ts`; frontend `tests/auth-dashboard.spec.cjs`, `tests/habit-details.spec.cjs`. |
+| Estado e historial | Filtros, confirmación, restauración explícita, historial conservado y bloqueo de nuevos registros inactivos: API `test/app.e2e-spec.ts`; frontend `tests/auth-dashboard.spec.cjs`, `tests/habit-details.spec.cjs`. |
+
+Las rutas API son relativas al repositorio hermano `api`; las de frontend, a este repositorio.
+
+### Evidencia de cierre
+
+- Frontend `6af77ac`: verificación independiente final de 129 pruebas de navegador (1,8 minutos), TypeScript app/node y lint aprobados. Bundle Vite en memoria con `envFile: false`, `write: false`: 1816 módulos; no se leyó el entorno privado ni se escribió el bundle.
+- La verificación frontend terminó con cambios de alcance `[]`, servidor detenido y puerto cerrado; hashes de manifiestos y lockfiles sin cambios. T6a `29dd4b6`, T6b `67f8a4a` y T6c `6af77ac` tienen aprobación nativa y acuse exacto consumido.
+- API `574d34be`: comprobación fresca de 620 pruebas unitarias en 19 suites y 111 pruebas HTTP con mocks, todas aprobadas. TypeScript `tsconfig.build.json` con `noEmit` y `incremental: false`, y ESLint sin correcciones sobre 28 archivos TS cambiados en Stage 3: cero errores y advertencias.
+- SHA de `package.json` y `yarn.lock` de API sin cambios; se conservó su estado sucio original. No hicieron falta cambios de código API para este cierre.
+- La evaluación nativa posterior quedó **no evaluable** por el índice no rastreado, pese a las aprobaciones y acuses consumidos; no se afirma que esa evaluación haya pasado. La verificación independiente cumplió la alternativa conservadora de alto riesgo.
+- Los avisos de Browserslist desactualizado y LF/CRLF no fueron fallos de las comprobaciones.
+
+### Límites y seguimiento
+
+El atajo cuantitativo del dashboard sigue deshabilitado y dirige al detalle. La cantidad de hoy reemplaza el total diario; una nota sola conserva la cantidad antigua desconocida. **Deshacer** mantiene el comportamiento antiguo de borrar el registro de hoy; no se añadió una auditoría completa de correcciones.
+
+Siguen sin verificarse MongoDB real, sus índices y concurrencia, Google/OAuth real, revisión visual manual y generación de `dist` de Nest. Los avisos de revisión sobre refresco de lecturas y reconciliación de filtros permanecen como seguimientos separados, no como bloqueos de este cierre. No hubo Stage 4, PR, push, despliegue ni dependencias nuevas.
