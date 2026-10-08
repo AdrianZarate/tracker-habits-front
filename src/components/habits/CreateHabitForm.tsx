@@ -8,7 +8,7 @@ interface CreateHabitFormProps {
 
 export default function CreateHabitForm({ onCreated, onClose }: CreateHabitFormProps) {
   return <HabitDefinitionForm
-    onSave={(payload, signal) => createHabit({ ...payload, title: payload.title! }, signal)}
+    onSave={({ title }, signal) => createHabit({ title }, signal)}
     onSaved={() => { onCreated(); onClose(); }}
     onClose={onClose}
   />;

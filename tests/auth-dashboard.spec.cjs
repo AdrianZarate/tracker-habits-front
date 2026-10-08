@@ -161,9 +161,7 @@ test('dashboard joins today logs and refreshes habits and logs after mocked crea
   await expect(page.getByRole('heading', { name: 'Nuevo hábito', exact: true })).toHaveCount(0);
   await expect(habitRow(page, 'Caminar').getByRole('button', { name: '✓ Hecho', exact: true })).toBeVisible();
   await expect(habitRow(page, 'Leer').getByRole('button', { name: 'Completar', exact: true })).toBeVisible();
-  expect(mockApi.createdPayload).toEqual({ title: 'Caminar', configuration: {
-    schedule: { kind: 'daily' }, goal: { kind: 'checkbox' },
-  } });
+  expect(mockApi.createdPayload).toEqual({ title: 'Caminar' });
   expect(callsFor(mockApi, '/habits', 'POST')).toHaveLength(1);
   expect(callsFor(mockApi, '/habits').length).toBeGreaterThan(initialHabits);
   expect(callsFor(mockApi, '/habits/logs').length).toBeGreaterThan(initialLogs);
@@ -176,40 +174,27 @@ async function openCreate(page) {
   await page.getByLabel('Título', { exact: true }).fill('  Leer por la noche  ');
 }
 
-test('create sends trimmed personal metadata and complete selected-weekday quantity configuration', async ({ page, mockApi }) => {
+test('create has only a name and omits retired configuration and appearance payloads', async ({ page, mockApi }) => {
   await openCreate(page);
-  await page.getByLabel('Categoría', { exact: true }).fill('  Aprendizaje  ');
-  await page.getByLabel('Color', { exact: true }).fill('  #Ab12Ef  ');
-  await page.getByLabel('Icono', { exact: true }).fill(' book ');
-  await page.getByLabel('Frecuencia', { exact: true }).selectOption('weekdays');
-  await page.getByLabel('Lunes', { exact: true }).check();
-  await page.getByLabel('Lunes', { exact: true }).uncheck();
-  await page.getByLabel('Lunes', { exact: true }).check();
-  await page.getByLabel('Domingo', { exact: true }).check();
-  await page.getByLabel('Tipo de objetivo', { exact: true }).selectOption('quantity');
-  await page.getByLabel('Cantidad objetivo', { exact: true }).fill('20.5');
-  await page.getByLabel('Unidad', { exact: true }).fill(' páginas ');
+  const dialog = page.getByRole('dialog');
+  await expect(dialog.locator('input')).toHaveCount(1);
+  await expect(dialog.locator('select')).toHaveCount(0);
+  for (const label of ['Categoría', 'Color', 'Icono', 'Frecuencia', 'Tipo de objetivo', 'Cantidad objetivo', 'Unidad']) {
+    await expect(dialog.getByLabel(label, { exact: true })).toHaveCount(0);
+  }
   await page.getByRole('button', { name: 'Crear hábito', exact: true }).click();
-  await expect(page.getByRole('dialog')).toHaveCount(0);
-  expect(mockApi.createdPayload).toEqual({ title: 'Leer por la noche', category: 'Aprendizaje', color: '#Ab12Ef', icon: 'book',
-    configuration: { schedule: { kind: 'weekdays', days: [1, 7] }, goal: { kind: 'quantity', target: 20.5, unit: 'páginas' } } });
-  const row = habitRow(page, 'Leer por la noche');
-  await expect(row).toContainText('Aprendizaje');
-  await expect(row).toContainText('Lunes, Domingo');
-  await expect(row).toContainText('20.5 páginas por día');
-  await expect(row.getByRole('button', { name: 'Registro de cantidad pendiente', exact: true })).toBeDisabled();
+  await expect(dialog).toHaveCount(0);
+  expect(mockApi.createdPayload).toEqual({ title: 'Leer por la noche' });
+  await expect(habitRow(page, 'Leer por la noche')).toBeVisible();
 });
 
-test('weekly create rejects invalid fields locally and retains values after recoverable API error', async ({ page, mockApi }) => {
+test('name create rejects invalid names locally and retains values after recoverable API error', async ({ page, mockApi }) => {
   await openCreate(page);
   const submit = page.getByRole('button', { name: 'Crear hábito', exact: true });
   const noPost = () => expect(callsFor(mockApi, '/habits', 'POST')).toHaveLength(0);
   for (const [label, invalid, valid] of [
     ['Título', '  ab  ', 'Leer por la noche'],
     ['Título', 'a'.repeat(201), 'Leer por la noche'],
-    ['Categoría', 'a'.repeat(81), 'Lectura'],
-    ['Color', 'red', '#123abc'],
-    ['Icono', 'a'.repeat(65), 'book'],
   ]) {
     await page.getByLabel(label, { exact: true }).fill(invalid);
     await submit.click();
@@ -217,33 +202,6 @@ test('weekly create rejects invalid fields locally and retains values after reco
     noPost();
     await page.getByLabel(label, { exact: true }).fill(valid);
   }
-  await page.getByLabel('Frecuencia', { exact: true }).selectOption('weekdays');
-  await submit.click();
-  await expect(page.getByRole('alert')).toContainText('Selecciona al menos un día');
-  noPost();
-  await page.getByLabel('Frecuencia', { exact: true }).selectOption('weekly');
-  for (const invalid of ['0', '8', '1.5']) {
-    await page.getByLabel('Días por semana', { exact: true }).fill(invalid);
-    await submit.click();
-    await expect(page.getByRole('alert')).toContainText('entre 1 y 7');
-    noPost();
-  }
-  await page.getByLabel('Días por semana', { exact: true }).fill('7');
-  await page.getByLabel('Tipo de objetivo', { exact: true }).selectOption('quantity');
-  for (const invalid of ['0', '-1', '1000000001', '']) {
-    await page.getByLabel('Cantidad objetivo', { exact: true }).fill(invalid);
-    await submit.click();
-    await expect(page.getByRole('alert')).toContainText('cantidad');
-    noPost();
-  }
-  await page.getByLabel('Cantidad objetivo', { exact: true }).fill('1000000000');
-  for (const invalid of ['   ', 'a'.repeat(33)]) {
-    await page.getByLabel('Unidad', { exact: true }).fill(invalid);
-    await submit.click();
-    await expect(page.getByRole('alert')).toContainText('unidad');
-    noPost();
-  }
-  await page.getByLabel('Unidad', { exact: true }).fill('páginas');
   mockApi.createStatus = 500;
   await submit.click();
   await expect(page.getByRole('alert')).toContainText('No se pudo crear');
@@ -251,8 +209,7 @@ test('weekly create rejects invalid fields locally and retains values after reco
   mockApi.createStatus = 201;
   await submit.click();
   await expect(page.getByRole('dialog')).toHaveCount(0);
-  expect(mockApi.createdPayload.configuration).toEqual({ schedule: { kind: 'weekly', timesPerWeek: 7 },
-    goal: { kind: 'quantity', target: 1000000000, unit: 'páginas' } });
+  expect(mockApi.createdPayload).toEqual({ title: 'Leer por la noche' });
 });
 
 test('quantity and inactive cards never invoke binary completion; unknown icon has a safe fallback', async ({ page, mockApi }) => {
@@ -453,6 +410,19 @@ test('current list failure is visible and filter change recovers without losing 
   await expect(page.getByText('No se pudieron cargar los hábitos.')).toHaveCount(0);
   expect(await page.evaluate(() => localStorage.getItem('token'))).toBe(session.token);
 });
+
+for (const context of ['session', 'account', 'day', 'route']) {
+  test(`create rechecks its original ${context} before writing`, async ({ page, mockApi }) => {
+    await page.clock.install({ time: new Date('2026-04-01T12:00:00Z') });
+    await openCreate(page);
+    if (context === 'session') await page.evaluate(() => localStorage.setItem('token', 'replacement'));
+    if (context === 'account') await page.evaluate(() => localStorage.setItem('email', 'another@example.invalid'));
+    if (context === 'route') await page.evaluate(() => history.pushState(null, '', '/elsewhere'));
+    if (context === 'day') await page.clock.setSystemTime(new Date('2026-04-02T12:00:00Z'));
+    await page.getByRole('button', { name: 'Crear hábito', exact: true }).click();
+    expect(callsFor(mockApi, '/habits', 'POST')).toHaveLength(0);
+  });
+}
 
 test('archive collision in create never sends lifecycle restore or hides the failure', async ({ page, mockApi }) => {
   await openCreate(page);

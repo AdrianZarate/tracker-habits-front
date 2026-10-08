@@ -60,6 +60,7 @@ export interface HabitLog {
   habitId: string;
   date: string;
   completed: boolean;
+  manualCompletion?: boolean;
   amount?: number;
   note?: string;
   configurationSnapshot?: ConfigurationSnapshot;
@@ -189,6 +190,10 @@ export type UpdateHabitLogPayload =
 
 export const updateHabitLog = (habitId: string, date: string, payload: UpdateHabitLogPayload, signal?: AbortSignal) =>
   apiClient.patch<HabitLog>(`/habits/${habitId}/logs/${date}`, payload, { signal });
+
+/** Marca manualmente hoy, incluso en hábitos antiguos de cantidad o con otro horario. */
+export const checkHabit = (habitId: string, signal?: AbortSignal) =>
+  apiClient.post<HabitLog>(`/habits/${habitId}/check`, undefined, { signal });
 
 /** Cantidad: reemplaza el total diario. Omitir amount conserva el checkbox sin cuerpo. */
 export const completeHabit = (habitId: string, amount?: number, signal?: AbortSignal) =>

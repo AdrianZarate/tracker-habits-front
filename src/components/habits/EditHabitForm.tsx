@@ -10,7 +10,7 @@ interface EditHabitFormProps {
 
 export default function EditHabitForm({ habit, onUpdated, onClose }: EditHabitFormProps) {
   return <HabitDefinitionForm habit={habit}
-    onSave={(payload, signal) => updateHabitDefinition(habit.habitId, payload, signal)}
+    onSave={({ title }, signal) => updateHabitDefinition(habit.habitId, { title }, signal)}
     onSaved={onUpdated} onClose={onClose}
   />;
 }
