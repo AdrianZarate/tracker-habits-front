@@ -1,6 +1,6 @@
 import { useNavigate } from 'react-router-dom';
 import { LogOut, CheckSquare } from 'lucide-react';
-import { useAuth } from '../../context/AuthContext';
+import { useAuth } from '../../hooks/useAuth';
 
 export default function Navbar() {
   const { user, logout } = useAuth();

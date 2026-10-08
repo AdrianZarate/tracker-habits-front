@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { Plus } from 'lucide-react';
 import {
   getHabits,
@@ -19,8 +19,7 @@ export default function Dashboard() {
   const [error, setError] = useState<string | null>(null);
   const [showForm, setShowForm] = useState(false);
 
-  const fetchHabits = () => {
-    setIsLoading(true);
+  const fetchHabits = useCallback(() => {
     const today = new Date().toISOString().split('T')[0];
 
     // Una sola petición trae todos los logs del usuario de hoy
@@ -44,11 +43,11 @@ export default function Dashboard() {
       })
       .catch(() => setError('No se pudieron cargar los hábitos.'))
       .finally(() => setIsLoading(false));
-  };
+  }, []);
 
   useEffect(() => {
     fetchHabits();
-  }, []);
+  }, [fetchHabits]);
 
   const handleLog = async (id: string, completedToday: boolean) => {
     try {
@@ -127,6 +126,7 @@ export default function Dashboard() {
         <CreateHabitForm
           onCreated={() => {
             setShowForm(false);
+            setIsLoading(true);
             fetchHabits();
           }}
           onClose={() => setShowForm(false)}
