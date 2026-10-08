@@ -34,7 +34,7 @@ function syntheticWeek(api, selected = '2026-03-31') {
 const test = base.extend({
   api: [async ({ page }, use) => {
     const api = {
-      calls: [], unexpected: [], detailStatus: 200, historyStatus: 200, mutationStatus: 200, weekStatus: 200, week: null, dateConfigurations: {},
+      calls: [], unexpected: [], detailStatus: 200, historyStatus: 200, mutationStatus: 200, weekStatus: 200, week: null, dateConfigurations: {}, lifecycleSettled: 0,
       habit: { habitId: 'read', title: 'Leer autorizado', slug: 'leer', active: true },
       logs: [], beforeDetail: async () => {}, beforeHistory: async () => {}, beforeMutation: async () => {}, beforeWeek: async () => {},
     };
@@ -87,6 +87,15 @@ const test = base.extend({
           if ('note' in body) { if (body.note) entry.note = body.note; else delete entry.note; }
           api.logs = [...api.logs.filter(l => l.date.slice(0, 10) !== date), entry];
           return reply(entry);
+        }
+        if (method === 'PATCH' && url.pathname.endsWith('/habits/read/lifecycle')) {
+          const body = req.postDataJSON(), status = api.mutationStatus;
+          const response = api.lifecycleResponse ?? { habitId: 'read', status: body.status, active: body.status === 'active' };
+          await api.beforeMutation();
+          api.lifecycleSettled++;
+          if (status !== 200) return reply({ message: 'Synthetic failure' }, status);
+          Object.assign(api.habit, response);
+          return reply(response);
         }
         if (method === 'PATCH' && url.pathname.endsWith('/habits/read/definition')) {
           const body = req.postDataJSON();
@@ -187,7 +196,7 @@ test('loading hides old data; generic detail failure can retry without ordinary 
   // Wait for all initial owned reads, including the independent new week request.
   await expect(page.getByRole('region', { name: 'Semana', exact: true }).getByRole('row')).toHaveCount(8);
   const before = api.calls.length;
-  await page.getByRole('button', { name: 'Desactivar', exact: true }).click();
+  await page.getByRole('button', { name: 'Pausar', exact: true }).click();
   await page.getByRole('button', { name: 'Cancelar', exact: true }).click();
   await page.clock.runFor(1000);
   expect(api.calls).toHaveLength(before);
@@ -209,7 +218,7 @@ test('inactive owner retains label-safe history but no active mutation controls'
   api.logs = [log('2026-03-30'), log('2026-03-31')];
   await page.goto(`${origin}/habits/read`);
   await expect(title(page)).toBeVisible();
-  await expect(page.getByText('Inactivo', { exact: true })).toBeVisible();
+  await expect(page.getByText('Pausado', { exact: true })).toBeVisible();
   await expect(page.getByText('lunes, 30 de marzo de 2026')).toBeVisible();
   await expect(page.getByRole('button', { name: /Completar|Eliminar registro|Desactivar/ })).toHaveCount(0);
 });
@@ -230,7 +239,7 @@ test('only account today is editable, undo and completion update synthetic histo
   expect(calls(api, '/habits/read/complete', 'POST')).toHaveLength(1);
 });
 
-test('mutation failures preserve view and recover; deactivation success returns dashboard', async ({ page, api }) => {
+test('mutation failures preserve view and recover; confirmed pause retains detail', async ({ page, api }) => {
   api.logs = [log('2026-03-31')];
   api.mutationStatus = 500;
   await page.goto(`${origin}/habits/read`);
@@ -243,15 +252,17 @@ test('mutation failures preserve view and recover; deactivation success returns 
   await page.getByRole('button', { name: 'Completar hoy', exact: true }).click();
   await expect(page.getByRole('alert')).toBeVisible();
   await expect(title(page)).toBeVisible();
-  await page.getByRole('button', { name: 'Desactivar', exact: true }).click();
-  await page.getByRole('button', { name: 'Sí, desactivar', exact: true }).click();
+  await page.getByRole('button', { name: 'Pausar', exact: true }).click();
+  await page.getByRole('button', { name: 'Sí, pausar', exact: true }).click();
   await expect(page.getByRole('alert')).toBeVisible();
   await expect(title(page)).toBeVisible();
   api.mutationStatus = 200;
-  await page.getByRole('button', { name: 'Desactivar', exact: true }).click();
-  await page.getByRole('button', { name: 'Sí, desactivar', exact: true }).click();
-  await expect(page).toHaveURL(`${origin}/dashboard`);
-  expect(calls(api, '/habits/read', 'PATCH')).toHaveLength(2);
+  await page.getByRole('button', { name: 'Pausar', exact: true }).click();
+  await page.getByRole('button', { name: 'Sí, pausar', exact: true }).click();
+  await expect(page).toHaveURL(`${origin}/habits/read`);
+  await expect(page.getByText('Pausado', { exact: true })).toBeVisible();
+  expect(calls(api, '/habits/read/lifecycle', 'PATCH').map(c => c.body)).toEqual([{ status: 'paused' }, { status: 'paused' }]);
+  expect(calls(api, '/habits/read', 'PATCH')).toHaveLength(0);
 });
 
 for (const stage of ['detail', 'history']) {
@@ -1070,6 +1081,131 @@ test('dated stale account day rejects submit before PATCH; 401 uses session clea
   await saveRecord(editor);
   await expect(page).toHaveURL(`${origin}/login`);
   expect(await page.evaluate(() => localStorage.getItem('token'))).toBeNull();
+});
+
+const lifecycleCalls = api => calls(api, '/habits/read/lifecycle', 'PATCH');
+const lifecycleCases = [
+  ['active', 'Pausar', 'pausar', 'paused', 'Pausado'],
+  ['active', 'Archivar', 'archivar', 'archived', 'Archivado'],
+  ['paused', 'Archivar', 'archivar', 'archived', 'Archivado'],
+  ['paused', 'Reanudar', 'reanudar', 'active', 'Activo'],
+  ['archived', 'Restaurar', 'restaurar', 'active', 'Activo'],
+];
+for (const [initial, action, confirm, target, badge] of lifecycleCases) {
+  test(`${initial}: confirmed ${action} preserves originals, history and editors; cancel sends nothing`, async ({ page, api }) => {
+    Object.assign(api.habit, { status: initial, active: initial !== 'active', category: 'Lectura', configuration: quantityGoal(),
+      pendingConfiguration: { revisionId: 'pending', effectiveFrom: '2026-04-01', configuration: dailyCheckbox } });
+    api.logs = [{ ...log('2026-03-30'), amount: 4, configurationSnapshot: snapshot(quantityGoal(10, 'km')) }];
+    await page.goto(`${origin}/habits/read`);
+    await expect(page.getByText('lunes, 30 de marzo de 2026')).toBeVisible();
+    await page.getByRole('button', { name: action, exact: true }).click();
+    const dialog = page.getByRole('dialog', { name: `${action} hábito`, exact: true });
+    await expect(dialog).toContainText('El historial y los objetivos originales se conservan.');
+    await expect(page.getByRole('button', { name: 'Editar hábito', exact: true })).toBeDisabled();
+    if (initial === 'active') await expect(progress(page).getByRole('button', { name: 'Guardar cantidad', exact: true })).toBeDisabled();
+    await dialog.getByRole('button', { name: 'Cancelar', exact: true }).click();
+    await page.getByRole('button', { name: action, exact: true }).click();
+    await page.keyboard.press('Escape');
+    await expect(dialog).toHaveCount(0);
+    expect(lifecycleCalls(api)).toHaveLength(0);
+    const reads = calls(api, '/habits/read').length;
+    const held = deferred();
+    api.beforeMutation = () => held.promise;
+    try {
+      await page.getByRole('button', { name: action, exact: true }).click();
+      await dialog.getByRole('button', { name: `Sí, ${confirm}`, exact: true }).click();
+      await expect.poll(() => lifecycleCalls(api).length).toBe(1);
+      await expect(dialog.getByRole('button', { name: 'Cancelar', exact: true })).toBeDisabled();
+      await expect(page.getByRole('button', { name: 'Editar hábito', exact: true })).toBeDisabled();
+    } finally { held.release(); }
+    await expect(dialog).toHaveCount(0);
+    await expect(page.getByText(badge, { exact: true })).toBeVisible();
+    await expect(page).toHaveURL(`${origin}/habits/read`);
+    await expect(title(page)).toBeVisible();
+    await expect(page.getByText(/Configuración actual: Diario · 20 páginas por día/)).toBeVisible();
+    await expect(page.getByText(/Desde el 2026-04-01: Diario · Marcar completado/)).toBeVisible();
+    await expect(page.getByText('lunes, 30 de marzo de 2026')).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Editar hábito', exact: true })).toBeEnabled();
+    await selectRecord(page);
+    await historyEditor(page).getByLabel('Nota', { exact: true }).fill('Tras cambiar estado');
+    await saveRecord(historyEditor(page));
+    await expect(historyEditor(page)).toContainText('Registro actualizado.');
+    expect(corrections(api).map(c => c.body)).toEqual([{ note: 'Tras cambiar estado' }]);
+    expect(lifecycleCalls(api).map(c => c.body)).toEqual([{ status: target }]);
+    expect(calls(api, '/habits/read')).toHaveLength(reads);
+    expect(api.calls.filter(c => c.method === 'DELETE')).toHaveLength(0);
+    await expect(progress(page).getByRole('button', { name: 'Guardar cantidad', exact: true })).toHaveCount(target === 'active' ? 1 : 0);
+  });
+}
+
+for (const status of [404, 500, 401]) {
+  test(`lifecycle ${status} preserves history or performs session cleanup`, async ({ page, api }) => {
+    api.logs = [log('2026-03-30')];
+    api.mutationStatus = status;
+    await page.goto(`${origin}/habits/read`);
+    await page.getByRole('button', { name: 'Archivar', exact: true }).click();
+    await page.getByRole('button', { name: 'Sí, archivar', exact: true }).click();
+    if (status === 401) {
+      await expect(page).toHaveURL(`${origin}/login`);
+      expect(await page.evaluate(() => localStorage.getItem('token'))).toBeNull();
+    } else {
+      await expect(page.getByRole('alert')).toContainText(status === 404 ? 'Hábito no encontrado' : 'No se pudo cambiar el estado');
+      await expect(page.getByText('Activo', { exact: true })).toBeVisible();
+      await expect(page.getByText('lunes, 30 de marzo de 2026')).toBeVisible();
+    }
+    expect(lifecycleCalls(api)).toHaveLength(1);
+    expect(api.calls.filter(c => c.method === 'DELETE')).toHaveLength(0);
+  });
+}
+
+for (const [context, lateStatus] of ['route', 'logout', 'day', 'session'].flatMap(context => [200, 500].map(status => [context, status]))) {
+  test(`late lifecycle ${lateStatus} after ${context} cannot alter current detail or cache`, async ({ page, api }) => {
+    api.mutationStatus = lateStatus;
+    await page.goto(`${origin}/habits/read`);
+    const held = deferred();
+    api.beforeMutation = () => held.promise;
+    try {
+      await page.getByRole('button', { name: 'Pausar', exact: true }).click();
+      await page.getByRole('button', { name: 'Sí, pausar', exact: true }).click();
+      await expect.poll(() => lifecycleCalls(api).length).toBe(1);
+      if (context === 'logout') {
+        await page.getByRole('button', { name: 'Salir', exact: true }).click();
+        await expect(page).toHaveURL(`${origin}/login`);
+      } else if (context === 'session') await page.evaluate(() => localStorage.setItem('token', 'new-session'));
+      else {
+        api.habit = { habitId: context === 'route' ? 'walk' : 'read', title: 'Contexto nuevo', active: true, status: 'active' };
+        if (context === 'route') await navigate(page, 'walk');
+        else {
+          await page.clock.setSystemTime(new Date('2026-04-01T07:00:01Z'));
+          await page.evaluate(() => window.dispatchEvent(new Event('focus')));
+        }
+        await expect(page.getByRole('heading', { name: 'Contexto nuevo', exact: true })).toBeVisible();
+      }
+    } finally { held.release(); }
+    await expect.poll(() => api.lifecycleSettled).toBe(1);
+    await page.clock.runFor(500);
+    await expect(page.getByText('Pausado', { exact: true })).toHaveCount(0);
+    await expect(page.getByText('No se pudo cambiar el estado. Inténtalo de nuevo.')).toHaveCount(0);
+    if (context === 'route' || context === 'day') await expect(page.getByText('Activo', { exact: true })).toBeVisible();
+  });
+}
+
+test('lifecycle submit rechecks changed session/day and uses returned status, not requested state', async ({ page, api }) => {
+  await page.goto(`${origin}/habits/read`);
+  await page.getByRole('button', { name: 'Pausar', exact: true }).click();
+  await page.evaluate(() => localStorage.setItem('token', 'new-session'));
+  await page.getByRole('button', { name: 'Sí, pausar', exact: true }).click();
+  expect(lifecycleCalls(api)).toHaveLength(0);
+  await page.evaluate(() => localStorage.setItem('token', 'detail-token'));
+  await page.clock.setSystemTime(new Date('2026-04-01T07:00:01Z'));
+  await page.getByRole('button', { name: 'Sí, pausar', exact: true }).click();
+  expect(lifecycleCalls(api)).toHaveLength(0);
+  await page.clock.setSystemTime(new Date('2026-04-01T00:30:00Z'));
+  api.lifecycleResponse = { habitId: 'read', status: 'archived', active: true };
+  await page.getByRole('button', { name: 'Sí, pausar', exact: true }).click();
+  await expect(page.getByText('Archivado', { exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Restaurar', exact: true })).toBeVisible();
+  await expect(progress(page).getByRole('button')).toHaveCount(0);
 });
 
 test.describe('account date differs from browser date', () => {

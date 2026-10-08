@@ -28,6 +28,7 @@ export interface PendingConfiguration extends ConfigurationSnapshot {
 }
 
 export type HabitStatus = 'active' | 'paused' | 'archived';
+export type HabitStatusFilter = HabitStatus | 'all';
 
 export interface PersonalHabitDefinition {
   title: string;
@@ -106,8 +107,9 @@ export interface HabitActiveResponse extends PersonalHabitDefinition {
 
 // ── Endpoints ─────────────────────────────────────────────────────────────────
 
-/** Obtiene todos los hábitos del usuario autenticado */
-export const getHabits = () => apiClient.get<Habit[]>('/habits');
+/** Sin filtro, conserva la lista activa por defecto de la API. */
+export const getHabits = (status?: HabitStatusFilter, signal?: AbortSignal) =>
+  apiClient.get<Habit[]>('/habits', { params: status ? { status } : undefined, signal });
 
 export interface GetLogsParams {
   startDate?: string; // ISO 8601 ej: "2026-02-01"
@@ -141,7 +143,17 @@ export const createHabit = (payload: CreateHabitPayload, signal?: AbortSignal) =
 export const updateHabitDefinition = (habitId: string, payload: UpdateHabitPayload, signal?: AbortSignal) =>
   apiClient.patch<HabitDetail>(`/habits/${habitId}/definition`, payload, { signal });
 
-/** Cambia el estado activo/inactivo de un hábito (toggle) */
+// La respuesta de asociación puede omitir título/slug de catálogo en filas antiguas.
+export interface HabitLifecycleResponse extends Partial<PersonalHabitDefinition> {
+  habitId: string;
+  status: HabitStatus;
+  active: boolean;
+}
+
+export const updateHabitLifecycle = (habitId: string, status: HabitStatus, signal?: AbortSignal) =>
+  apiClient.patch<HabitLifecycleResponse>(`/habits/${habitId}/lifecycle`, { status }, { signal });
+
+/** PATCH antiguo: pausa sin restaurar archivos; se conserva por compatibilidad. */
 export const toggleHabit = (habitId: string) =>
   apiClient.patch<HabitActiveResponse>(`/habits/${habitId}`);
 
@@ -151,8 +163,8 @@ export interface IncompleteResponse {
 }
 
 /** Desmarca el hábito como completado (borra el log de hoy) */
-export const incompleteHabit = (habitId: string) =>
-  apiClient.delete<IncompleteResponse>(`/habits/${habitId}/incomplete`);
+export const incompleteHabit = (habitId: string, signal?: AbortSignal) =>
+  apiClient.delete<IncompleteResponse>(`/habits/${habitId}/incomplete`, { signal });
 
 export interface UserLog {
   _id: string;
@@ -167,7 +179,7 @@ export interface UserLog {
 }
 
 /** Obtiene todos los logs del usuario autenticado (incluye title y slug) */
-export const getUserLogs = () => apiClient.get<UserLog[]>('/habits/logs');
+export const getUserLogs = (signal?: AbortSignal) => apiClient.get<UserLog[]>('/habits/logs', { signal });
 
 /** Sólo progreso explícito o nota; nunca se envían snapshots desde el cliente. */
 export type UpdateHabitLogPayload =

@@ -1,9 +1,9 @@
 import { useEffect, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { isAxiosError } from 'axios';
-import { ArrowLeft, PowerOff, Trash2 } from 'lucide-react';
-import { completeHabit, getHabitById, getHabitLogs, incompleteHabit, isHabitActive, LEGACY_CONFIGURATION, toggleHabit } from '../api/habits.api';
-import type { HabitDetail, HabitLog } from '../api/habits.api';
+import { ArrowLeft, Trash2 } from 'lucide-react';
+import { completeHabit, getHabitById, getHabitLogs, incompleteHabit, isHabitActive, LEGACY_CONFIGURATION, updateHabitLifecycle } from '../api/habits.api';
+import type { HabitDetail, HabitLog, HabitStatus } from '../api/habits.api';
 import { markCompleted, markIncomplete } from '../utils/dailyCompletions';
 import { calendarDay, calendarLabel, formatCalendarLabel } from '../utils/calendar';
 import { useAuth } from '../hooks/useAuth';
@@ -22,11 +22,13 @@ export default function HabitDetails() {
   const today = useCalendarDay(timeZone);
   // Remount before paint: no previous route/account/day data can flash.
   return <HabitDetailView key={JSON.stringify([id, user?.email, token, timeZone, today])}
-    id={id} token={token} timeZone={timeZone} today={today} />;
+    id={id} email={user?.email ?? ''} token={token} timeZone={timeZone} today={today} />;
 }
 
-function HabitDetailView({ id, token, timeZone, today }: {
-  id: string; token: string | null; timeZone: string; today: string;
+type LifecycleAction = { status: HabitStatus; label: string; verb: string };
+
+function HabitDetailView({ id, email, token, timeZone, today }: {
+  id: string; email: string; token: string | null; timeZone: string; today: string;
 }) {
   const navigate = useNavigate();
   const [habit, setHabit] = useState<HabitDetail | null>(null);
@@ -37,7 +39,7 @@ function HabitDetailView({ id, token, timeZone, today }: {
   const [attempt, setAttempt] = useState(0);
   const [pending, setPending] = useState<string | null>(null);
   const [mutationError, setMutationError] = useState<string | null>(null);
-  const [showConfirm, setShowConfirm] = useState(false);
+  const [showConfirm, setShowConfirm] = useState<LifecycleAction | null>(null);
   const [showEdit, setShowEdit] = useState(false);
   const [refreshFailed, setRefreshFailed] = useState(false);
   const [progressRefreshFailed, setProgressRefreshFailed] = useState(false);
@@ -46,12 +48,14 @@ function HabitDetailView({ id, token, timeZone, today }: {
   const [amountError, setAmountError] = useState<string | null>(null);
   const lifecycle = useRef<AbortController | null>(null);
   const current = (request: AbortController) => !request.signal.aborted
+    && window.location.pathname === `/habits/${id}` && localStorage.getItem('email') === email
     && localStorage.getItem('token') === token && calendarDay(new Date(), timeZone) === today;
 
   useEffect(() => {
     const request = new AbortController();
     lifecycle.current = request;
-    const valid = () => !request.signal.aborted && localStorage.getItem('token') === token
+    const valid = () => !request.signal.aborted && window.location.pathname === `/habits/${id}`
+      && localStorage.getItem('email') === email && localStorage.getItem('token') === token
       && calendarDay(new Date(), timeZone) === today;
     let detailLoaded = false;
     async function load() {
@@ -74,14 +78,14 @@ function HabitDetailView({ id, token, timeZone, today }: {
     }
     void load();
     return () => request.abort();
-  }, [id, token, timeZone, today, attempt]);
+  }, [id, email, token, timeZone, today, attempt]);
 
   const retry = () => {
     setHabit(null);
     setLogs([]);
     setError(null);
     setMutationError(null);
-    setShowConfirm(false);
+    setShowConfirm(null);
     setShowEdit(false);
     setRefreshFailed(false);
     setProgressRefreshFailed(false);
@@ -91,6 +95,12 @@ function HabitDetailView({ id, token, timeZone, today }: {
   };
   const isToday = (date: string) => calendarLabel(date) === today;
   const active = habit ? isHabitActive(habit) : false;
+  const status = habit?.status ?? (active ? 'active' : 'paused');
+  const actions: LifecycleAction[] = status === 'archived'
+    ? [{ status: 'active', label: 'Restaurar', verb: 'restaurar' }]
+    : [status === 'active' ? { status: 'paused', label: 'Pausar', verb: 'pausar' }
+      : { status: 'active', label: 'Reanudar', verb: 'reanudar' },
+      { status: 'archived', label: 'Archivar', verb: 'archivar' }];
   const configuration = habit?.configuration ?? LEGACY_CONFIGURATION;
   const todayLog = logs.find(log => isToday(log.date));
   // The stored original configuration outranks current (never pending) definitions.
@@ -100,7 +110,7 @@ function HabitDetailView({ id, token, timeZone, today }: {
   const schedule = todayConfiguration.schedule;
   const isoWeekday = new Date(`${today}T00:00:00Z`).getUTCDay() || 7;
   const scheduled = schedule.kind !== 'weekdays' || schedule.days.includes(isoWeekday);
-  const ready = active && !isLoading && !error && !refreshFailed && !progressRefreshFailed;
+  const ready = active && !isLoading && !error && !refreshFailed && !progressRefreshFailed && !showConfirm;
   const canRecord = ready && (!!todayLog || scheduled);
 
   useEffect(() => {
@@ -160,17 +170,39 @@ function HabitDetailView({ id, token, timeZone, today }: {
     }
   };
   const completedToday = todayLog?.completed ?? false;
-  const handleMutation = async (action: 'complete' | 'undo' | 'deactivate', measuredAmount?: number) => {
+  const changeLifecycle = async () => {
+    const request = lifecycle.current;
+    if (!request || !current(request) || !habit || !showConfirm || showEdit || pending || isLoading || error || refreshFailed) return;
+    const action = showConfirm;
+    if (!actions.some(candidate => candidate.status === action.status)) return;
+    setPending('lifecycle');
+    setMutationError(null);
+    try {
+      const { data } = await updateHabitLifecycle(id, action.status, request.signal);
+      if (!current(request)) return;
+      // La asociación antigua puede no tener título/slug; conserva el detalle y los logs.
+      setHabit(previous => previous ? { ...previous, ...data } : previous);
+    } catch (cause) {
+      if (!current(request)) return;
+      setMutationError(isAxiosError(cause) && cause.response?.status === 404
+        ? 'Hábito no encontrado. No se cambió el estado.'
+        : 'No se pudo cambiar el estado. Inténtalo de nuevo.');
+    } finally {
+      if (current(request)) {
+        setPending(null);
+        setShowConfirm(null);
+      }
+    }
+  };
+
+  const handleMutation = async (action: 'complete' | 'undo', measuredAmount?: number) => {
     const request = lifecycle.current;
     if (!request || !current(request) || !ready || pending) return;
     if (action === 'complete' && (!canRecord || (quantity && measuredAmount === undefined))) return;
     setPending(action);
     setMutationError(null);
     try {
-      if (action === 'deactivate') {
-        await toggleHabit(id);
-        if (current(request)) navigate('/dashboard');
-      } else if (action === 'undo') {
+      if (action === 'undo') {
         await incompleteHabit(id);
         if (!current(request)) return;
         setLogs(previous => previous.filter(log => !isToday(log.date)));
@@ -183,7 +215,7 @@ function HabitDetailView({ id, token, timeZone, today }: {
         if (data.completed) markCompleted(id, timeZone);
         else markIncomplete(id, timeZone);
       }
-      if (action !== 'deactivate' && current(request)) {
+      if (current(request)) {
         setWeekRefresh(value => value + 1);
         // A successful amount write is never repeated to recover failed reads.
         if (action === 'complete' && quantity) await refreshProgress(request);
@@ -193,7 +225,7 @@ function HabitDetailView({ id, token, timeZone, today }: {
     } finally {
       if (current(request)) {
         setPending(null);
-        setShowConfirm(false);
+        setShowConfirm(null);
       }
     }
   };
@@ -253,38 +285,30 @@ function HabitDetailView({ id, token, timeZone, today }: {
                 )}
               </div>
 
-              <span className='text-sm text-dark-muted'>{active ? 'Activo' : 'Inactivo'}</span>
-              {/* Sólo la asociación activa permite controles de seguimiento. */}
-              {active && (!showConfirm ? (
-                <button
-                  onClick={() => setShowConfirm(true)}
-                  disabled={!ready || pending !== null}
-                  title='Desactivar hábito'
-                  className='flex items-center gap-1.5 rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-1.5 text-xs font-medium text-red-400 transition hover:bg-red-500/20 hover:text-red-300'
-                >
-                  <PowerOff size={13} />
-                  Desactivar
-                </button>
-              ) : (
-                <div className='flex items-center gap-2'>
-                  <span className='text-xs text-dark-muted'>¿Seguro?</span>
-                  <button
-                    onClick={() => handleMutation('deactivate')}
-                    disabled={pending !== null}
-                    className='rounded-lg bg-red-500 px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-red-600 disabled:opacity-50'
-                  >
-                    {pending === 'deactivate' ? 'Desactivando...' : 'Sí, desactivar'}
-                  </button>
-                  <button
-                    onClick={() => setShowConfirm(false)}
-                    disabled={pending !== null}
-                    className='rounded-lg px-3 py-1.5 text-xs text-dark-muted transition hover:text-dark-text'
-                  >
-                    Cancelar
-                  </button>
-                </div>
-              ))}
+              <span className='rounded-lg bg-dark-bg px-2 py-1 text-sm text-dark-muted'>
+                {status === 'active' ? 'Activo' : status === 'paused' ? 'Pausado' : 'Archivado'}
+              </span>
+              <div className='flex flex-wrap gap-2'>
+                {actions.map(action => <button key={action.label}
+                  onClick={() => { setMutationError(null); setShowConfirm(action); }}
+                  disabled={isLoading || !!error || pending !== null || refreshFailed || !!showConfirm || showEdit}
+                  className='text-sm text-primary disabled:opacity-50'>{action.label}</button>)}
+              </div>
             </div>
+            {showConfirm && <div role='dialog' aria-labelledby='lifecycle-heading'
+              className='mt-4 space-y-3 rounded-lg border border-primary/30 p-4'
+              onKeyDown={event => { if (event.key === 'Escape' && !pending) setShowConfirm(null); }}>
+              <h2 id='lifecycle-heading' className='font-semibold text-dark-text'>{showConfirm.label} hábito</h2>
+              <p className='text-sm text-dark-muted'>¿Quieres {showConfirm.verb} «{habit.title}»?
+                {' '}{showConfirm.status === 'active' ? 'Podrás volver a registrar progreso.' : 'No podrás registrar progreso de hoy hasta volver a activarlo.'}
+                {' '}El historial y los objetivos originales se conservan.</p>
+              <button onClick={() => void changeLifecycle()} disabled={pending !== null}
+                className='mr-3 text-primary disabled:opacity-50'>
+                {pending === 'lifecycle' ? 'Guardando estado...' : `Sí, ${showConfirm.verb}`}
+              </button>
+              <button autoFocus onClick={() => setShowConfirm(null)} disabled={pending !== null}
+                className='text-dark-muted disabled:opacity-50'>Cancelar</button>
+            </div>}
             <div className='mt-3 space-y-2'>
               <HabitMetadata habit={habit} />
               <p className='text-sm text-dark-muted'>Configuración actual: <HabitConfigurationSummary configuration={configuration} /></p>
@@ -292,7 +316,7 @@ function HabitDetailView({ id, token, timeZone, today }: {
                 <p>Desde el {habit.pendingConfiguration.effectiveFrom}: <HabitConfigurationSummary configuration={habit.pendingConfiguration.configuration} /></p>
                 <p className='mt-1 text-dark-muted'>Hasta esa fecha se mantiene la configuración actual. El historial conserva sus objetivos originales.</p>
               </div>}
-              <button onClick={() => setShowEdit(true)} disabled={isLoading || pending !== null || refreshFailed}
+              <button onClick={() => setShowEdit(true)} disabled={isLoading || pending !== null || refreshFailed || !!showConfirm}
                 className='text-primary disabled:opacity-50'>Editar hábito</button>
             </div>
             {!isLoading && !error && <section aria-labelledby='today-progress-heading' className='mt-5 space-y-2 text-sm text-dark-text'>

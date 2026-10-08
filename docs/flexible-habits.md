@@ -1,6 +1,6 @@
 # Configurar y registrar tus hábitos personales
 
-Puedes crear y editar tus hábitos, registrar la cantidad de hoy, corregir registros por fecha y consultar siete días con sus objetivos originales. Los cambios no afectan a otras personas ni recalculan la finalización guardada del historial.
+Puedes crear y editar tus hábitos, filtrar por estado, pausar o archivar sin perder historial, registrar la cantidad de hoy, corregir registros por fecha y consultar siete días con sus objetivos originales. Los cambios no afectan a otras personas ni recalculan la finalización guardada del historial.
 
 ## Crear o editar
 
@@ -64,6 +64,24 @@ Los errores 400, 404 y 409 quedan visibles con el borrador conservado. Un 401 us
 
 Al seleccionar otra fecha se retira inmediatamente el formulario anterior y se cancelan sus solicitudes. Cambiar ruta, sesión o día de la cuenta descarta el contexto anterior; la validación se repite antes de guardar.
 
+## Filtrar, pausar, archivar y restaurar (T6c)
+
+En el dashboard, **Estado de los hábitos** empieza en **Activos**. Selecciona **Pausados**, **Archivados** o **Todos** para consultar tus otras asociaciones. Una lista vacía sólo indica que no hay hábitos en ese estado; no implica que no tengas hábitos en otros filtros. El completado de hoy sigue usando los registros de la fecha de tu cuenta.
+
+En el detalle, la insignia muestra **Activo**, **Pausado** o **Archivado**. El estado explícito de la API manda sobre el booleano antiguo `active`; sin estado, un hábito antiguo inactivo se considera pausado.
+
+| Estado actual | Acciones disponibles |
+| --- | --- |
+| Activo | **Pausar** o **Archivar**. |
+| Pausado | **Reanudar** o **Archivar**. |
+| Archivado | **Restaurar**, de forma explícita. |
+
+Cada acción pide confirmación y explica que conserva historial y objetivos originales. **Cancelar** o Escape no envía cambios. Mientras se guarda, confirmación, cancelación y otras acciones de estado quedan bloqueadas. Un error mantiene el detalle y el historial; puedes volver a confirmar para reintentar. Un 401 conserva el flujo existente de limpieza de sesión y vuelta al login.
+
+Después de guardar permaneces en el detalle: se aplica el estado devuelto por la API sin borrar registros, metadatos ni configuración. El historial, la semana, la edición personal y la corrección de registros existentes siguen disponibles. Pausados y archivados no permiten progreso de hoy ni crear registros históricos nuevos; una corrección existente no reactiva el hábito. Reanudar o restaurar requiere confirmación, nunca ocurre al consultar o registrar progreso. Crear un hábito cuyo identificador ya está archivado puede devolver 409; el formulario no restaura el archivo automáticamente.
+
+Cambiar filtro, ruta, cuenta, sesión o día retira el contexto anterior. Las lecturas se cancelan y sus respuestas, errores o finalizaciones tardías no reemplazan la lista vigente ni vuelven a llenar la caché de completados después de salir.
+
 ## Leer la semana
 
 El panel **Semana** selecciona hoy por defecto en la zona de la cuenta y muestra siete etiquetas de lunes a domingo, incluso sin registros. Cada día muestra su definición original, cantidad cuando existe y finalización guardada. Los días no programados se señalan sin borrar registros.
@@ -72,12 +90,14 @@ El resumen cuenta **días completados**, nunca suma cantidades de unidades disti
 
 ## Límites actuales
 
-T6a y T6b añaden cantidades de hoy, lectura semanal, notas y correcciones por fecha en el detalle. Filtros de listas, pausa, archivo y restauración quedan para T6c. No hay selector del panel semanal independiente, controles cuantitativos del dashboard, auditoría de cambios ni rediseño de estadísticas, recordatorios, autenticación, temas o dependencias.
+T6a–T6c añaden cantidades de hoy, lectura semanal, notas, correcciones por fecha, filtros de estado y pausa/archivo/restauración explícitos. No hay selector del panel semanal independiente, controles cuantitativos del dashboard, auditoría de cambios ni rediseño de estadísticas, recordatorios, autenticación, temas o dependencias.
 
 El detalle se obtiene de la asociación autenticada antes de ofrecer edición o cargar historial y semana. Un hábito ajeno o inexistente muestra el mismo resultado de no encontrado. Cambiar ruta, cuenta o día descarta las respuestas antiguas; la API sigue siendo la autoridad de propiedad y validación.
 
 ## Contrato y comprobación
 
+- Listar: `GET /habits` mantiene el valor activo por defecto; `?status=active|paused|archived|all` selecciona el estado.
+- Cambiar estado: `PATCH /habits/:habitId/lifecycle`, sólo `{ "status": "active" | "paused" | "archived" }`, tras confirmación. No usa el PATCH antiguo ni elimina historial.
 - Crear: `POST /habits`, con configuración completa.
 - Editar: `PATCH /habits/:habitId/definition`, con sólo los campos cambiados y una configuración completa únicamente cuando cambia.
 - Borrar metadatos opcionales: enviar `""`; omitir un campo conserva su valor.
@@ -89,4 +109,4 @@ El detalle se obtiene de la asociación autenticada antes de ofrecer edición o 
 
 Consulta el [contrato de la API](../../api/docs/personal-habits.md) para los detalles de fechas efectivas y objetivos históricos.
 
-Las pruebas en `tests/auth-dashboard.spec.cjs` y `tests/habit-details.spec.cjs` usan rutas sintéticas: payloads, cero y valores inválidos, reemplazo de cantidades, snapshots frente a definición actual/pendiente, cantidades antiguas desconocidas, semanas vacías y cambios de unidad a mitad de semana, notas sin pérdida de cantidades antiguas, borrado y omisión de notas sin cambios, checkbox `false`, fechas inválidas/futuras y meses anteriores, corrección inactiva, creación explícita, reintentos de lecturas sin repetir mutaciones, carreras de selección, actividad/días programados, propiedad, sesión, teclado y cambio de día en la zona de la cuenta. No verifican datos reales, MongoDB, concurrencia ni OAuth real.
+Las pruebas en `tests/auth-dashboard.spec.cjs` y `tests/habit-details.spec.cjs` usan rutas sintéticas: payloads, cero y valores inválidos, reemplazo de cantidades, snapshots frente a definición actual/pendiente, cantidades antiguas desconocidas, semanas vacías y cambios de unidad a mitad de semana, notas sin pérdida de cantidades antiguas, borrado y omisión de notas sin cambios, checkbox `false`, fechas inválidas/futuras y meses anteriores, corrección inactiva, creación explícita, reintentos de lecturas sin repetir mutaciones, carreras de selección, actividad/días programados, propiedad, sesión, teclado y cambio de día en la zona de la cuenta, filtros y listas vacías, confirmación/cancelación de cada transición, conservación del detalle con respuestas de asociación antiguas, errores de estado y carreras de filtro/lectura/mutación. No verifican datos reales, MongoDB, concurrencia ni OAuth real.

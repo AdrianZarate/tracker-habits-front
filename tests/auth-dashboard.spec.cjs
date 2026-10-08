@@ -15,7 +15,8 @@ const test = base.extend({
     const api = {
       calls: [], unexpected: [], status: 200, createStatus: 201, session,
       habits: [{ habitId: 'read', title: 'Leer', slug: 'leer' }],
-      logs: [], beforeStatus: async () => {},
+      logs: [], beforeStatus: async () => {}, beforeHabits: async () => {}, beforeLogs: async () => {},
+      beforeMutation: async () => {}, listStatus: 200, mutationStatus: 200, byStatus: null, settled: [],
     };
     await page.route('**/*', async route => {
       const request = route.request();
@@ -24,17 +25,23 @@ const test = base.extend({
         const endpoint = ['/auth/check-status', '/habits/logs', '/habits']
           .find(suffix => url.pathname.endsWith(suffix));
         const method = request.method();
-        api.calls.push({ endpoint, method, authorization: request.headers().authorization });
+        api.calls.push({ endpoint, path: url.pathname, search: url.search, method, authorization: request.headers().authorization });
         const headers = { 'access-control-allow-origin': origin };
         if (method === 'GET' && endpoint === '/auth/check-status') {
           await api.beforeStatus();
           return route.fulfill({ status: api.status, json: api.session, headers });
         }
         if (method === 'GET' && endpoint === '/habits/logs') {
-          return route.fulfill({ json: api.logs, headers });
+          const logs = [...api.logs];
+          await api.beforeLogs();
+          return route.fulfill({ json: logs, headers });
         }
         if (method === 'GET' && endpoint === '/habits') {
-          return route.fulfill({ json: api.habits, headers });
+          const filter = url.searchParams.get('status') ?? 'active';
+          const habits = api.byStatus?.[filter] ?? api.habits, status = api.listStatus;
+          await api.beforeHabits(filter);
+          api.settled.push(`list:${filter}`);
+          return route.fulfill({ json: habits, status, headers });
         }
         if (method === 'POST' && endpoint === '/habits') {
           api.createdPayload = request.postDataJSON();
@@ -46,7 +53,10 @@ const test = base.extend({
           }, headers });
         }
         if (method === 'POST' && /\/habits\/[^/]+\/complete$/.test(url.pathname)) {
-          return route.fulfill({ json: { _id: 'synthetic', habitId: 'read', date: new Date().toISOString(), completed: true }, headers });
+          const status = api.mutationStatus;
+          await api.beforeMutation();
+          api.settled.push('completion');
+          return route.fulfill({ status, json: { _id: 'synthetic', habitId: 'read', date: new Date().toISOString(), completed: true }, headers });
         }
         api.unexpected.push(`${method} ${url.pathname}`);
         return route.abort();
@@ -257,4 +267,198 @@ test('quantity and inactive cards never invoke binary completion; unknown icon h
   await expect(row.locator('svg[data-habit-icon="fallback"]')).toHaveCount(1);
   await expect(habitRow(page, 'Pausado').getByRole('button', { name: 'Completar', exact: true })).toBeDisabled();
   expect(mockApi.calls.filter(c => c.method === 'POST')).toHaveLength(0);
+});
+
+const statusFilter = page => page.getByLabel('Estado de los hábitos', { exact: true });
+const deferred = () => { let release; const promise = new Promise(resolve => { release = resolve; }); return { promise, release }; };
+async function openFilteredDashboard(page, api) {
+  api.byStatus = {
+    active: [{ habitId: 'read', title: 'Leer', status: 'active', active: false }],
+    paused: [{ habitId: 'read', title: 'Pausa visible', status: 'paused', active: true }],
+    archived: [],
+    all: [{ habitId: 'archived', title: 'Archivo visible', status: 'archived', active: true }],
+  };
+  await storeSession(page);
+  await page.goto(`${origin}/dashboard`);
+  await expect(habitRow(page, 'Leer')).toBeVisible();
+}
+
+test('status queries default active, keep today enrichment and explain filtered emptiness', async ({ page, mockApi }) => {
+  mockApi.logs = [{ habitId: 'read', date: new Date().toISOString(), completed: true }];
+  await openFilteredDashboard(page, mockApi);
+  await expect(statusFilter(page)).toHaveValue('active');
+  expect(callsFor(mockApi, '/habits').every(c => c.search === '' || c.search === '?status=active')).toBe(true);
+  await expect(habitRow(page, 'Leer').getByRole('button', { name: '✓ Hecho' })).toBeEnabled();
+  await statusFilter(page).selectOption('paused');
+  await expect(habitRow(page, 'Pausa visible').getByRole('button', { name: '✓ Hecho' })).toBeDisabled();
+  await statusFilter(page).selectOption('archived');
+  await expect(page.getByText('No hay hábitos en este estado.', { exact: true })).toBeVisible();
+  await expect(page.getByText(/No tienes hábitos todavía/)).toHaveCount(0);
+  await statusFilter(page).selectOption('all');
+  await expect(habitRow(page, 'Archivo visible').getByRole('button', { name: 'Completar', exact: true })).toBeDisabled();
+  for (const filter of ['paused', 'archived', 'all']) expect(callsFor(mockApi, '/habits').some(c => c.search === `?status=${filter}`)).toBe(true);
+  expect(mockApi.calls.filter(c => ['POST', 'PATCH', 'DELETE'].includes(c.method))).toHaveLength(0);
+});
+
+for (const lateStatus of [200, 500]) {
+  test(`old filter ${lateStatus} response cannot replace list, error or pending spinner`, async ({ page, mockApi }) => {
+    await openFilteredDashboard(page, mockApi);
+    const old = deferred(), current = deferred();
+    mockApi.listStatus = lateStatus;
+    mockApi.beforeHabits = filter => filter === 'paused' ? old.promise : current.promise;
+    try {
+      await statusFilter(page).selectOption('paused');
+      await expect.poll(() => callsFor(mockApi, '/habits').some(c => c.search === '?status=paused')).toBe(true);
+      mockApi.listStatus = 200;
+      await statusFilter(page).selectOption('all');
+      await expect.poll(() => callsFor(mockApi, '/habits').some(c => c.search === '?status=all')).toBe(true);
+      old.release();
+      await expect.poll(() => mockApi.settled.includes('list:paused')).toBe(true);
+      await expect(page.locator('.animate-spin')).toBeVisible();
+      await expect(habitRow(page, 'Pausa visible')).toHaveCount(0);
+      await expect(page.getByText('No se pudieron cargar los hábitos.')).toHaveCount(0);
+    } finally { old.release(); current.release(); }
+    await expect(habitRow(page, 'Archivo visible')).toBeVisible();
+    await expect(page.getByText('No se pudieron cargar los hábitos.')).toHaveCount(0);
+  });
+}
+
+for (const lateStatus of [200, 500]) {
+  test(`completion ${lateStatus} after filter change cannot update inactive list or errors`, async ({ page, mockApi }) => {
+    await openFilteredDashboard(page, mockApi);
+    const held = deferred();
+    mockApi.beforeMutation = () => held.promise;
+    mockApi.mutationStatus = lateStatus;
+    try {
+      await habitRow(page, 'Leer').getByRole('button', { name: 'Completar', exact: true }).click();
+      await expect.poll(() => mockApi.calls.filter(c => c.path.endsWith('/complete')).length).toBe(1);
+      await statusFilter(page).selectOption('paused');
+      await expect(habitRow(page, 'Pausa visible')).toBeVisible();
+    } finally { held.release(); }
+    await expect.poll(() => mockApi.settled.includes('completion')).toBe(true);
+    await expect(habitRow(page, 'Pausa visible').getByRole('button', { name: 'Completar', exact: true })).toBeDisabled();
+    await expect(page.getByText('Error al actualizar el hábito.')).toHaveCount(0);
+    expect(await page.evaluate(() => Object.keys(localStorage).filter(k => k.startsWith('completedHabits_')).map(k => localStorage.getItem(k)))).not.toContain('["read"]');
+  });
+}
+
+for (const stage of ['list', 'completion']) {
+  test(`late dashboard ${stage} after logout cannot refill cache or display errors`, async ({ page, mockApi }) => {
+    await storeSession(page);
+    const held = deferred();
+    if (stage === 'list') mockApi.beforeLogs = () => held.promise;
+    else mockApi.beforeMutation = () => held.promise;
+    mockApi.logs = stage === 'list' ? [{ habitId: 'read', date: new Date().toISOString(), completed: true }] : [];
+    try {
+      await page.goto(`${origin}/dashboard`);
+      if (stage === 'completion') await habitRow(page, 'Leer').getByRole('button', { name: 'Completar', exact: true }).click();
+      else await expect.poll(() => callsFor(mockApi, '/habits/logs').length).toBeGreaterThan(0);
+      await page.getByRole('button', { name: 'Salir', exact: true }).click();
+      await expect(page).toHaveURL(`${origin}/login`);
+    } finally { held.release(); }
+    expect(await page.evaluate(() => Object.keys(localStorage).filter(k => k.startsWith('completedHabits_')))).toEqual([]);
+    await expect(page.getByRole('alert')).toHaveCount(0);
+  });
+}
+
+test('account midnight replaces dashboard context and ignores previous-day logs', async ({ page, mockApi }) => {
+  await page.clock.install({ time: new Date('2026-04-01T06:59:59Z') });
+  mockApi.session = { ...session, timeZone: 'America/Los_Angeles' };
+  mockApi.logs = [{ habitId: 'read', date: '2026-03-31T00:00:00Z', completed: true }];
+  await openFilteredDashboard(page, mockApi);
+  await expect(habitRow(page, 'Leer').getByRole('button', { name: '✓ Hecho' })).toBeVisible();
+  const held = deferred();
+  mockApi.beforeLogs = () => held.promise;
+  try {
+    await statusFilter(page).selectOption('paused');
+    await expect.poll(() => callsFor(mockApi, '/habits').some(c => c.search === '?status=paused')).toBe(true);
+    mockApi.beforeLogs = async () => {};
+    mockApi.logs = [];
+    await page.clock.runFor(1100);
+    await expect(habitRow(page, 'Pausa visible').getByRole('button', { name: 'Completar', exact: true })).toBeDisabled();
+  } finally { held.release(); }
+  await page.clock.runFor(500);
+  expect(await page.evaluate(() => localStorage.getItem('completedHabits_2026-04-01') ?? '')).not.toContain('read');
+});
+
+test('no-argument list API remains unfiltered and defaults to active', async ({ page, mockApi }) => {
+  await storeSession(page);
+  await page.goto(`${origin}/dashboard`);
+  await expect(habitRow(page, 'Leer')).toBeVisible();
+  await page.evaluate(async () => { const { getHabits } = await import('/src/api/habits.api.ts'); await getHabits(); });
+  expect(callsFor(mockApi, '/habits').at(-1).search).toBe('');
+});
+
+for (const context of ['session', 'account', 'day', 'route']) {
+  test(`dashboard completion rechecks ${context} before and after awaiting`, async ({ page, mockApi }) => {
+    await page.clock.install({ time: new Date('2026-04-01T12:00:00Z') });
+    await openFilteredDashboard(page, mockApi);
+    const held = deferred();
+    mockApi.beforeMutation = () => held.promise;
+    const complete = habitRow(page, 'Leer').getByRole('button', { name: 'Completar', exact: true });
+    const changeContext = async () => {
+      if (context === 'session') await page.evaluate(() => localStorage.setItem('token', 'new-session'));
+      else if (context === 'account') await page.evaluate(() => localStorage.setItem('email', 'another@example.invalid'));
+      else if (context === 'day') await page.clock.setSystemTime(new Date('2026-04-02T12:00:00Z'));
+      else await page.evaluate(() => history.pushState(null, '', '/elsewhere'));
+    };
+    try {
+      await complete.click();
+      await expect.poll(() => mockApi.calls.filter(c => c.path.endsWith('/complete')).length).toBe(1);
+      await changeContext();
+    } finally { held.release(); }
+    await expect.poll(() => mockApi.settled.includes('completion')).toBe(true);
+    await page.clock.runFor(100);
+    await expect(complete).toBeVisible();
+    await complete.click();
+    expect(mockApi.calls.filter(c => c.path.endsWith('/complete'))).toHaveLength(1);
+    expect(await page.evaluate(() => localStorage.getItem('completedHabits_2026-04-01') ?? '')).not.toContain('read');
+    await expect(page.getByText('Error al actualizar el hábito.')).toHaveCount(0);
+  });
+}
+
+for (const [context, lateStatus] of ['session', 'account', 'day', 'route'].flatMap(context => [200, 500].map(status => [context, status]))) {
+  test(`dashboard list ${lateStatus} rejects stale ${context} response, error and finally`, async ({ page, mockApi }) => {
+    await page.clock.install({ time: new Date('2026-04-01T12:00:00Z') });
+    await storeSession(page);
+    const held = deferred();
+    mockApi.beforeHabits = () => held.promise;
+    mockApi.listStatus = lateStatus;
+    mockApi.logs = [{ habitId: 'read', date: '2026-04-01T00:00:00Z', completed: true }];
+    try {
+      await page.goto(`${origin}/dashboard`);
+      await expect.poll(() => callsFor(mockApi, '/habits').length).toBeGreaterThan(0);
+      if (context === 'session') await page.evaluate(() => localStorage.setItem('token', 'new-session'));
+      else if (context === 'account') await page.evaluate(() => localStorage.setItem('email', 'another@example.invalid'));
+      else if (context === 'day') await page.clock.setSystemTime(new Date('2026-04-02T12:00:00Z'));
+      else await page.evaluate(() => history.pushState(null, '', '/elsewhere'));
+    } finally { held.release(); }
+    await expect.poll(() => mockApi.settled.includes('list:active')).toBe(true);
+    await page.clock.runFor(100);
+    await expect(page.locator('.animate-spin')).toBeVisible();
+    await expect(habitRow(page, 'Leer')).toHaveCount(0);
+    await expect(page.getByText('No se pudieron cargar los hábitos.')).toHaveCount(0);
+    expect(await page.evaluate(() => Object.keys(localStorage).filter(k => k.startsWith('completedHabits_')))).toEqual([]);
+  });
+}
+
+test('current list failure is visible and filter change recovers without losing session', async ({ page, mockApi }) => {
+  await openFilteredDashboard(page, mockApi);
+  mockApi.listStatus = 500;
+  await statusFilter(page).selectOption('paused');
+  await expect(page.getByText('No se pudieron cargar los hábitos.')).toBeVisible();
+  mockApi.listStatus = 200;
+  await statusFilter(page).selectOption('all');
+  await expect(habitRow(page, 'Archivo visible')).toBeVisible();
+  await expect(page.getByText('No se pudieron cargar los hábitos.')).toHaveCount(0);
+  expect(await page.evaluate(() => localStorage.getItem('token'))).toBe(session.token);
+});
+
+test('archive collision in create never sends lifecycle restore or hides the failure', async ({ page, mockApi }) => {
+  await openCreate(page);
+  mockApi.createStatus = 409;
+  await page.getByRole('button', { name: 'Crear hábito', exact: true }).click();
+  await expect(page.getByRole('alert')).toContainText('El hábito cambió. Recarga el detalle');
+  await expect(page.getByRole('dialog')).toBeVisible();
+  expect(mockApi.calls.filter(c => c.method === 'PATCH')).toHaveLength(0);
 });
