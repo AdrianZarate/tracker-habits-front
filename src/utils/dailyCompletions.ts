@@ -1,30 +1,26 @@
-/**
- * Persiste en localStorage qué hábitos fueron completados hoy.
- * La clave incluye la fecha para que se resetee automáticamente al día siguiente.
- */
+import { calendarDay } from './calendar';
 
-const getKey = () => {
-  const today = new Date().toISOString().split('T')[0]; // "2026-02-25"
-  return `completedHabits_${today}`;
-};
+// Optional zone keeps detail callers compatible until T4; never use device zone.
+const storedZone = () => localStorage.getItem('timeZone') ?? 'UTC';
+const getKey = (timeZone: string) => `completedHabits_${calendarDay(new Date(), timeZone)}`;
 
-export const getCompletedToday = (): Set<string> => {
+export const getCompletedToday = (timeZone = storedZone()): Set<string> => {
   try {
-    const raw = localStorage.getItem(getKey());
-    return new Set(raw ? (JSON.parse(raw) as string[]) : []);
+    const raw: unknown = JSON.parse(localStorage.getItem(getKey(timeZone)) ?? '[]');
+    return new Set(Array.isArray(raw) ? raw.filter((id): id is string => typeof id === 'string') : []);
   } catch {
     return new Set();
   }
 };
 
-export const markCompleted = (habitId: string) => {
-  const set = getCompletedToday();
+export const markCompleted = (habitId: string, timeZone = storedZone()) => {
+  const set = getCompletedToday(timeZone);
   set.add(habitId);
-  localStorage.setItem(getKey(), JSON.stringify([...set]));
+  localStorage.setItem(getKey(timeZone), JSON.stringify([...set]));
 };
 
-export const markIncomplete = (habitId: string) => {
-  const set = getCompletedToday();
+export const markIncomplete = (habitId: string, timeZone = storedZone()) => {
+  const set = getCompletedToday(timeZone);
   set.delete(habitId);
-  localStorage.setItem(getKey(), JSON.stringify([...set]));
+  localStorage.setItem(getKey(timeZone), JSON.stringify([...set]));
 };

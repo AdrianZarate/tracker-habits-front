@@ -3,6 +3,7 @@ import type { ReactNode } from 'react';
 import { googleLogin as googleLoginApi, checkStatus } from '../api/auth.api';
 import type { AuthUser } from '../api/auth.api';
 import { AuthContext } from './auth-context';
+import { clearSession } from '../utils/session';
 
 // ── Provider ─────────────────────────────────────────────────────────────────
 
@@ -24,43 +25,43 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         localStorage.setItem('fullName', data.fullName);
         localStorage.setItem('email', data.email);
         if (data.picture) localStorage.setItem('picture', data.picture);
+        else localStorage.removeItem('picture');
+        localStorage.setItem('timeZone', data.timeZone ?? 'UTC');
         setToken(data.token);
         setUser({
           fullName: data.fullName,
           email: data.email,
           picture: data.picture,
           roles: data.roles,
+          timeZone: data.timeZone ?? 'UTC',
         });
       })
       .catch(() => {
         // Token inválido o expirado → limpiar sesión
-        localStorage.removeItem('token');
-        localStorage.removeItem('fullName');
-        localStorage.removeItem('email');
-        localStorage.removeItem('picture');
+        clearSession();
       })
       .finally(() => setIsLoading(false));
   }, []);
 
   const loginWithGoogle = async (credential: string) => {
     const { data } = await googleLoginApi(credential);
+    clearSession();
     localStorage.setItem('token', data.token);
     localStorage.setItem('fullName', data.fullName);
     if (data.email) localStorage.setItem('email', data.email);
     if (data.picture) localStorage.setItem('picture', data.picture);
+    localStorage.setItem('timeZone', data.timeZone ?? 'UTC');
     setToken(data.token);
     setUser({
       fullName: data.fullName,
       email: data.email ?? '',
       picture: data.picture,
+      timeZone: data.timeZone ?? 'UTC',
     });
   };
 
   const logout = () => {
-    localStorage.removeItem('token');
-    localStorage.removeItem('fullName');
-    localStorage.removeItem('email');
-    localStorage.removeItem('picture');
+    clearSession();
     setToken(null);
     setUser(null);
   };

@@ -12,19 +12,25 @@ import HabitList from '../components/habits/HabitList';
 import CreateHabitForm from '../components/habits/CreateHabitForm';
 import Spinner from '../components/ui/Spinner';
 import { markCompleted, markIncomplete } from '../utils/dailyCompletions';
+import { useAuth } from '../hooks/useAuth';
+import { useCalendarDay } from '../hooks/useCalendarDay';
+import { calendarDay } from '../utils/calendar';
 
 export default function Dashboard() {
+  const { user, token } = useAuth();
+  const timeZone = user?.timeZone ?? 'UTC';
+  const today = useCalendarDay(timeZone);
+  const currentRequest = () => localStorage.getItem('token') === token && calendarDay(new Date(), timeZone) === today;
   const [habits, setHabits] = useState<Habit[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [showForm, setShowForm] = useState(false);
 
   const fetchHabits = useCallback(() => {
-    const today = new Date().toISOString().split('T')[0];
-
     // Una sola petición trae todos los logs del usuario de hoy
     Promise.all([getHabits(), getUserLogs()])
       .then(([{ data: habits }, { data: logs }]) => {
+        if (localStorage.getItem('token') !== token || calendarDay(new Date(), timeZone) !== today) return;
         // Set de habitIds completados HOY
         const completedIds = new Set(
           logs
@@ -34,16 +40,17 @@ export default function Dashboard() {
 
         const enriched = habits.map((h) => {
           const done = completedIds.has(h.habitId);
-          if (done) markCompleted(h.habitId);
-          else markIncomplete(h.habitId);
+          if (done) markCompleted(h.habitId, timeZone);
+          else markIncomplete(h.habitId, timeZone);
           return { ...h, completedToday: done };
         });
 
+        setError(null);
         setHabits(enriched);
       })
       .catch(() => setError('No se pudieron cargar los hábitos.'))
       .finally(() => setIsLoading(false));
-  }, []);
+  }, [today, timeZone, token]);
 
   useEffect(() => {
     fetchHabits();
@@ -53,7 +60,8 @@ export default function Dashboard() {
     try {
       if (completedToday) {
         await incompleteHabit(id);
-        markIncomplete(id);
+        if (!currentRequest()) return;
+        markIncomplete(id, timeZone);
         setHabits((prev) =>
           prev.map((h) =>
             h.habitId === id ? { ...h, completedToday: false } : h,
@@ -61,7 +69,8 @@ export default function Dashboard() {
         );
       } else {
         await completeHabit(id);
-        markCompleted(id);
+        if (!currentRequest()) return;
+        markCompleted(id, timeZone);
         setHabits((prev) =>
           prev.map((h) =>
             h.habitId === id ? { ...h, completedToday: true } : h,
