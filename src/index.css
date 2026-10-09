@@ -37,6 +37,40 @@
 }
 
 @layer components {
+  .login-dialog {
+    width: min(26rem, calc(100% - 2rem));
+    max-height: calc(100dvh - 2rem);
+    margin: auto;
+    padding: 4.5rem 1rem 2rem;
+    overflow-y: auto;
+    text-align: center;
+    color: var(--color-text);
+    box-shadow: 0 24px 80px #0008;
+  }
+
+  .login-dialog::backdrop {
+    background: #020617bf;
+    backdrop-filter: blur(4px);
+  }
+
+  .login-close {
+    position: absolute;
+    top: 1rem;
+    right: 1rem;
+    width: 44px;
+    padding: 0;
+  }
+
+  .login-google {
+    display: flex;
+    justify-content: center;
+    min-width: 0;
+  }
+
+  .login-google iframe {
+    max-width: 100%;
+  }
+
   .page-shell {
     @apply min-h-screen px-4 py-8 sm:py-12;
   }

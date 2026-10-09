@@ -20,16 +20,35 @@ const test = base.extend({
       habits: [{ habitId: 'read', title: 'Leer', slug: 'leer' }],
       logs: [], beforeStatus: async () => {}, beforeHabits: async () => {}, beforeLogs: async () => {},
       beforeMutation: async () => {}, listStatus: 200, logsStatus: 200, mutationStatus: 200, settled: [],
+      googleStatus: 200, googleMessage: 'Acceso rechazado por el servidor.', beforeGoogle: async () => {}, googleNetworkError: false,
     };
     await page.route('**/*', async route => {
       const request = route.request();
       const url = new URL(request.url());
+      if (url.hostname === 'accounts.google.com' && url.pathname === '/gsi/client') {
+        return route.fulfill({ contentType: 'application/javascript', body: `window.google = { accounts: { id: {
+          initialize: o => window.mockGoogle = o.callback,
+          renderButton: (el, options) => {
+            const frame = document.createElement('iframe'); frame.title = 'Iniciar sesión con Google';
+            frame.width = options.width; frame.height = 40; frame.style.border = '0';
+            frame.srcdoc = '<button style="width:100%;height:40px" onclick="parent.mockGoogle({credential: \\'synthetic-token\\'})">Google sintético</button>';
+            el.replaceChildren(frame);
+          }, cancel: () => {}
+        } } };` });
+      }
       if (['fetch', 'xhr'].includes(request.resourceType())) {
-        const endpoint = ['/auth/check-status', '/habits/logs', '/habits']
+        const endpoint = ['/auth/google', '/auth/check-status', '/habits/logs', '/habits']
           .find(suffix => url.pathname.endsWith(suffix));
         const method = request.method();
         api.calls.push({ endpoint, path: url.pathname, search: url.search, method, body: request.postDataJSON(), authorization: request.headers().authorization });
         const headers = { 'access-control-allow-origin': origin };
+        if (method === 'POST' && endpoint === '/auth/google') {
+          const status = api.googleStatus;
+          await api.beforeGoogle();
+          if (api.googleNetworkError) return route.abort('failed');
+          api.settled.push('google');
+          return route.fulfill({ status, json: status === 200 ? api.session : { message: api.googleMessage }, headers });
+        }
         if (method === 'GET' && endpoint === '/auth/check-status') {
           await api.beforeStatus();
           return route.fulfill({ status: api.status, json: api.session, headers });
@@ -82,8 +101,253 @@ const test = base.extend({
   }, { auto: true }],
 });
 
+const googleButton = page => page.frameLocator('iframe[title="Iniciar sesión con Google"]').getByRole('button');
+
+for (const width of [1440, 375, 320]) {
+  test(`landing login ${width}px traps iframe focus, cancels safely and fits`, async ({ page }, testInfo) => {
+    await page.setViewportSize({ width, height: 740 });
+    await page.goto(origin);
+    const cta = page.getByRole('button', { name: 'Empezar con Google' });
+    await cta.click();
+    const dialog = page.getByRole('dialog', { name: 'Iniciar sesión' });
+    const close = dialog.getByRole('button', { name: 'Cerrar inicio de sesión' });
+    await expect(dialog).toBeVisible();
+    await expect(close).toBeFocused();
+    await expectTapTarget(close);
+    const box = await dialog.boundingBox();
+    expect(box.x).toBeGreaterThanOrEqual(0);
+    expect(box.x + box.width).toBeLessThanOrEqual(width);
+    expect(box.y + box.height).toBeLessThanOrEqual(740);
+    await expectNoOverflow(page);
+    await expect(googleButton(page)).toBeVisible();
+    const frameBox = await dialog.locator('iframe').boundingBox();
+    expect(frameBox.x + frameBox.width).toBeLessThanOrEqual(box.x + box.width);
+    const originalScroll = await page.evaluate(() => scrollY);
+    await page.mouse.wheel(0, 500);
+    expect(await page.evaluate(() => scrollY)).toBe(originalScroll);
+    await page.locator('#hero-title').evaluate(el => el.focus());
+    await expect(close).toBeFocused();
+    await page.keyboard.press('Tab');
+    await expect(googleButton(page)).toBeFocused();
+    await page.keyboard.press('Tab');
+    await page.keyboard.press('Tab');
+    await expect(close).toBeFocused();
+    await page.screenshot({ path: testInfo.outputPath(`login-modal-${width}.png`), fullPage: true });
+    await page.keyboard.press('Escape');
+    await expect(dialog).toHaveCount(0);
+    await expect(cta).toBeFocused();
+    expect(await page.evaluate(() => document.body.style.overflow)).toBe('');
+    await page.screenshot({ path: testInfo.outputPath(`landing-${width}.png`), fullPage: true });
+    await cta.click();
+    await dialog.getByRole('heading').click();
+    await expect(dialog).toBeVisible();
+    await page.mouse.click(3, 3);
+    await expect(dialog).toHaveCount(0);
+    await expect(cta).toBeFocused();
+  });
+}
+
+test('Google pending blocks close, Escape, backdrop and synchronous duplicate callbacks; success enters dashboard', async ({ page, mockApi }) => {
+  await page.goto(origin);
+  await page.getByRole('button', { name: 'Empezar con Google' }).click();
+  await expect(googleButton(page)).toBeVisible();
+  const held = deferred(); mockApi.beforeGoogle = () => held.promise;
+  try {
+    await page.evaluate(() => {
+      window.mockGoogle({ credential: 'synthetic-token' });
+      window.mockGoogle({ credential: 'synthetic-token' });
+    });
+    const dialog = page.getByRole('dialog');
+    await expect(dialog).toHaveAttribute('aria-busy', 'true');
+    await expect(dialog.getByRole('button', { name: 'Cerrar inicio de sesión' })).toBeDisabled();
+    await expect(dialog.getByRole('status')).toHaveText('Ingresando...');
+    await page.keyboard.press('Escape');
+    await page.mouse.click(3, 3);
+    await expect(dialog).toBeVisible();
+    await expect.poll(() => callsFor(mockApi, '/auth/google', 'POST').length).toBe(1);
+  } finally { held.release(); }
+  await expect(page).toHaveURL(`${origin}/dashboard`);
+  await expect(habitRow(page, 'Leer')).toBeVisible();
+  expect(callsFor(mockApi, '/auth/google', 'POST')[0].body).toEqual({
+    idToken: 'synthetic-token', timeZone: await page.evaluate(() => Intl.DateTimeFormat().resolvedOptions().timeZone),
+  });
+});
+
+for (const status of [401, 500]) {
+  test(`Google ${status} preserves readable server error in modal without storing a failed session`, async ({ page, mockApi }) => {
+    mockApi.googleStatus = status;
+    await page.goto(`${origin}/login?redirect=https://example.invalid`);
+    await googleButton(page).click();
+    const dialog = page.getByRole('dialog', { name: 'Iniciar sesión' });
+    await expect(dialog.getByRole('alert')).toHaveText(mockApi.googleMessage);
+    await expectContrast(dialog.getByRole('alert'), dialog);
+    await expect(dialog).toHaveAttribute('aria-busy', 'false');
+    await expect(page).toHaveURL(`${origin}/login?redirect=https://example.invalid`);
+    expect(await page.evaluate(() => localStorage.getItem('token'))).toBeNull();
+    await page.keyboard.press('Escape');
+    await expect(page).toHaveURL(`${origin}/`);
+    await expect(page.getByRole('dialog')).toHaveCount(0);
+  });
+}
+
+test('Google callbacks retained after close cannot authenticate, update errors or affect a reopened modal', async ({ page, mockApi }) => {
+  await page.goto(origin);
+  const cta = page.getByRole('button', { name: 'Empezar con Google' });
+  await cta.click();
+  await expect(googleButton(page)).toBeVisible();
+  await page.evaluate(() => window.oldGoogle = window.mockGoogle);
+  await page.keyboard.press('Escape');
+  await cta.click();
+  await expect(googleButton(page)).toBeVisible();
+  await page.evaluate(() => {
+    window.oldGoogle({ credential: 'synthetic-token' });
+    window.oldGoogle({});
+  });
+  expect(callsFor(mockApi, '/auth/google', 'POST')).toHaveLength(0);
+  await expect(page.getByRole('alert')).toHaveCount(0);
+  await expect(page.getByRole('dialog')).toHaveAttribute('aria-busy', 'false');
+});
+
+for (const [context, status] of ['account', 'session', 'route', 'unmount'].flatMap(context => [200, 500].map(status => [context, status]))) {
+  test(`Google late ${status} cannot commit or navigate after ${context} changes`, async ({ page, mockApi }) => {
+    mockApi.googleStatus = status;
+    await page.goto(origin);
+    await page.getByRole('button', { name: 'Empezar con Google' }).click();
+    await expect(googleButton(page)).toBeVisible();
+    const held = deferred(); mockApi.beforeGoogle = () => held.promise;
+    try {
+      await googleButton(page).click();
+      await expect.poll(() => callsFor(mockApi, '/auth/google', 'POST').length).toBe(1);
+      if (context === 'account') await page.evaluate(() => localStorage.setItem('email', 'another@example.invalid'));
+      if (context === 'session') await page.evaluate(() => localStorage.setItem('token', 'replacement'));
+      if (context === 'route') await page.evaluate(() => history.pushState(null, '', '/elsewhere'));
+      if (context === 'unmount') {
+        await page.evaluate(() => { history.pushState(null, '', '/elsewhere'); dispatchEvent(new PopStateEvent('popstate')); });
+        await expect(page).toHaveURL(`${origin}/login`);
+      }
+    } finally { held.release(); }
+    await expect.poll(() => mockApi.settled.includes('google')).toBe(true);
+    await expect(page).not.toHaveURL(`${origin}/dashboard`);
+    expect(await page.evaluate(() => localStorage.getItem('token'))).toBe(context === 'session' ? 'replacement' : null);
+    await expect(page.getByRole('alert')).toHaveCount(0);
+  });
+}
+
+for (const context of ['route', 'account']) {
+  test(`same-tick unrelated GET stays independent of stale Google login after ${context} change`, async ({ page, mockApi }) => {
+    await page.goto(origin);
+    await page.getByRole('button', { name: 'Empezar con Google' }).click();
+    await expect(googleButton(page)).toBeVisible();
+    const googleHeld = deferred(), readHeld = deferred();
+    mockApi.beforeGoogle = () => googleHeld.promise;
+    mockApi.beforeHabits = () => readHeld.promise;
+    try {
+      await page.evaluate(async () => {
+        const { default: client } = await import('/src/api/axios.ts');
+        const hook = window.mockGoogle;
+        const googleSettled = new Promise(resolve => {
+          const observer = client.interceptors.response.use(response => {
+            if (response.config.url === '/auth/google') {
+              client.interceptors.response.eject(observer);
+              // Drain the guard/provider continuations before checking session storage.
+              setTimeout(resolve, 0);
+            }
+            return response;
+          });
+        });
+        hook({ credential: 'synthetic-token' });
+        // No await here: both requests snapshot the capture before Axios microtasks run.
+        const read = client.get('/habits').then(() => 'fulfilled', error => error.message);
+        hook.interleaving = { read, googleSettled };
+      });
+      await expect.poll(() => callsFor(mockApi, '/auth/google', 'POST').length).toBe(1);
+      await expect.poll(() => callsFor(mockApi, '/habits').length).toBe(1);
+      if (context === 'route') await page.evaluate(() => history.pushState(null, '', '/elsewhere'));
+      else await page.evaluate(() => localStorage.setItem('email', 'replacement@example.invalid'));
+    } finally {
+      readHeld.release();
+      googleHeld.release();
+    }
+    const result = await page.evaluate(async () => {
+      const hook = window.mockGoogle;
+      await hook.interleaving.googleSettled;
+      const read = await hook.interleaving.read;
+      delete hook.interleaving;
+      return {
+        read,
+        profile: ['token', 'fullName', 'email', 'picture', 'timeZone'].map(key => localStorage.getItem(key)),
+        path: location.pathname,
+      };
+    });
+    expect.soft(result.read, 'Unrelated GET must not be rejected by the login guard').toBe('fulfilled');
+    expect.soft(result.profile, 'Stale Google must not commit token or profile').toEqual([
+      null, null, context === 'account' ? 'replacement@example.invalid' : null, null, null,
+    ]);
+    expect(result.path).toBe(context === 'route' ? '/elsewhere' : '/');
+    await expect(page.getByRole('alert')).toHaveCount(0);
+  });
+}
+
+test('missing Google credential and network failure are recoverable and never store failed login', async ({ page, mockApi }) => {
+  await page.goto(origin);
+  await page.getByRole('button', { name: 'Empezar con Google' }).click();
+  await expect(googleButton(page)).toBeVisible();
+  await page.evaluate(() => window.mockGoogle({}));
+  await expect(page.getByRole('alert')).toHaveText('Error al autenticar con Google.');
+  expect(callsFor(mockApi, '/auth/google', 'POST')).toHaveLength(0);
+  mockApi.googleNetworkError = true;
+  await googleButton(page).click();
+  await expect(page.getByRole('alert')).toHaveText('El servidor está iniciando, espera unos segundos e intenta de nuevo.');
+  expect(await page.evaluate(() => localStorage.getItem('token'))).toBeNull();
+  mockApi.googleNetworkError = false;
+  await googleButton(page).click();
+  await expect(page).toHaveURL(`${origin}/dashboard`);
+  expect(callsFor(mockApi, '/auth/google', 'POST')).toHaveLength(2);
+});
+
+test('stale Google response guard does not poison a new login attempt after route unmount', async ({ page, mockApi }) => {
+  await page.goto(origin);
+  await page.getByRole('button', { name: 'Empezar con Google' }).click();
+  const held = deferred(); mockApi.beforeGoogle = () => held.promise;
+  try {
+    await googleButton(page).click();
+    await expect.poll(() => callsFor(mockApi, '/auth/google', 'POST').length).toBe(1);
+    await page.evaluate(() => { history.pushState(null, '', '/elsewhere'); dispatchEvent(new PopStateEvent('popstate')); });
+    await expect(page).toHaveURL(`${origin}/login`);
+    mockApi.beforeGoogle = async () => {};
+    await googleButton(page).click();
+    await expect(page).toHaveURL(`${origin}/dashboard`);
+  } finally { held.release(); }
+  await expect.poll(() => mockApi.settled.filter(s => s === 'google').length).toBe(2);
+  await expect(page).toHaveURL(`${origin}/dashboard`);
+  expect(await page.evaluate(() => localStorage.getItem('token'))).toBe(session.token);
+});
+
+test('authenticated landing CTAs enter dashboard without requesting Google again, logout replaces route and clears session', async ({ page, mockApi }) => {
+  await storeSession(page);
+  await page.goto(origin);
+  await expect(page.getByRole('link', { name: 'Empezar con Google' })).toBeVisible();
+  await page.getByRole('link', { name: 'Empezar con Google' }).click();
+  await expect(page).toHaveURL(`${origin}/dashboard`);
+  await expect(habitRow(page, 'Leer')).toBeVisible();
+  await page.evaluate(() => {
+    localStorage.setItem('completedHabits_2026-03-31', '["read"]');
+    localStorage.setItem('unrelated', 'keep');
+  });
+  await page.getByRole('button', { name: 'Salir', exact: true }).click();
+  await expect(page).toHaveURL(`${origin}/`);
+  expect(await page.evaluate(() => ['token', 'fullName', 'email', 'picture', 'timeZone', 'completedHabits_2026-03-31'].map(k => localStorage.getItem(k)))).toEqual(Array(6).fill(null));
+  expect(await page.evaluate(() => localStorage.getItem('unrelated'))).toBe('keep');
+  await expect(page.getByRole('dialog')).toHaveCount(0);
+  await page.goBack();
+  await expect(page.getByText('Estos son tus hábitos diarios')).toHaveCount(0);
+  expect(callsFor(mockApi, '/auth/google', 'POST')).toHaveLength(0);
+});
+
 async function storeSession(page) {
   await page.addInitScript(() => {
+    // Google frames must not reseed the application's origin in this synthetic fixture.
+    if (window !== window.top) return;
     localStorage.setItem('token', 'stored-mock-token');
     localStorage.setItem('fullName', 'Nombre anterior');
     localStorage.setItem('email', 'old@example.invalid');
@@ -130,7 +394,8 @@ test('stored token is validated before dashboard restore and renewed for data re
     token: localStorage.getItem('token'), fullName: localStorage.getItem('fullName'), email: localStorage.getItem('email'),
   }))).toEqual({ token: session.token, fullName: session.fullName, email: session.email });
   await page.getByRole('button', { name: 'Salir', exact: true }).click();
-  await expect(page).toHaveURL(`${origin}/login`);
+  await expect(page).toHaveURL(`${origin}/`);
+  await expect(page.getByRole('dialog')).toHaveCount(0);
   expect(await page.evaluate(() => ['token', 'fullName', 'email', 'picture'].map(key => localStorage.getItem(key)))).toEqual([null, null, null, null]);
 });
 
@@ -397,7 +662,7 @@ for (const stage of ['list', 'completion']) {
       if (stage === 'completion') await todayCheck(page).click();
       else await expect.poll(() => callsFor(mockApi, '/habits/logs').length).toBeGreaterThan(0);
       await page.getByRole('button', { name: 'Salir', exact: true }).click();
-      await expect(page).toHaveURL(`${origin}/login`);
+      await expect(page).toHaveURL(`${origin}/`);
     } finally { held.release(); }
     expect(await page.evaluate(() => Object.keys(localStorage).filter(k => k.startsWith('completedHabits_')))).toEqual([]);
     await expect(page.getByRole('alert')).toHaveCount(0);

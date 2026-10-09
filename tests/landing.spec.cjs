@@ -25,13 +25,15 @@ test('public introduction, honest preview and login calls to action', async ({ p
   await expect(page.getByRole('heading', { name: 'Consulta tu historial' })).toBeVisible();
   await expect(page.getByText('Vista ilustrativa · datos de ejemplo')).toBeVisible();
   await expect(page.locator('#como-funciona ol > li')).toHaveCount(3);
-  const ctas = page.locator('a[href="/login"]');
+  const ctas = page.getByRole('button', { name: /^(Iniciar sesión|Empezar con Google|Crear mi primer hábito)$/ });
   expect(await ctas.count()).toBeGreaterThanOrEqual(3);
   for (const cta of await ctas.all()) {
     await cta.click();
-    await expect(page).toHaveURL(`${origin}/login`);
-    await expect(page.getByRole('heading', { name: 'Iniciar sesión', exact: true })).toBeVisible();
-    await page.goto(origin);
+    await expect(page).toHaveURL(`${origin}/`);
+    await expect(page.getByRole('dialog', { name: 'Iniciar sesión' })).toBeVisible();
+    await page.keyboard.press('Escape');
+    await expect(page.getByRole('dialog')).toHaveCount(0);
+    await expect(cta).toBeFocused();
   }
   await expect(page.locator('html')).toHaveAttribute('lang', 'es');
   await expect(page).toHaveTitle(/HabitTracker/);
@@ -56,15 +58,21 @@ test('responsive layout, skip link and keyboard navigation', async ({ page }) =>
   await expect(page.getByRole('main')).toBeFocused();
   await page.goto(origin);
   for (let i = 0; i < 5; i++) await page.keyboard.press('Tab');
-  await expect(page.getByRole('link', { name: 'Empezar con Google' })).toBeFocused();
+  await expect(page.getByRole('button', { name: 'Empezar con Google' })).toBeFocused();
   await page.keyboard.press('Enter');
-  await expect(page).toHaveURL(`${origin}/login`);
+  await expect(page).toHaveURL(`${origin}/`);
+  await expect(page.getByRole('dialog', { name: 'Iniciar sesión' })).toBeVisible();
 });
 
 test('existing login, protected routes and wildcard keep their signed-out behavior', async ({ page }) => {
   for (const route of ['/login', '/dashboard', '/habits/example', '/not-a-route']) {
     await page.goto(`${origin}${route}`);
     await expect(page).toHaveURL(`${origin}/login`);
-    await expect(page.getByRole('heading', { name: 'Iniciar sesión', exact: true })).toBeVisible();
+    const dialog = page.getByRole('dialog', { name: 'Iniciar sesión' });
+    await expect(dialog).toBeVisible();
+    await expect(page.locator('#hero-title')).toBeVisible();
+    await dialog.getByRole('button', { name: 'Cerrar inicio de sesión' }).click();
+    await expect(page).toHaveURL(`${origin}/`);
+    await expect(page.getByRole('dialog')).toHaveCount(0);
   }
 });

@@ -94,6 +94,7 @@ for (const [name, status, habitsStatus] of [['failed check-status', 403, 200], [
     await seed(page); api.status = status; api.habitsStatus = habitsStatus;
     await page.goto(`${origin}/dashboard`);
     await expect(page).toHaveURL(`${origin}/login`);
+    await expect(page.getByRole('dialog', { name: 'Iniciar sesión' })).toBeVisible();
     await clean(page);
   });
 }

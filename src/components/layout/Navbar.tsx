@@ -1,3 +1,4 @@
+import { startTransition } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { LogOut, CheckSquare } from 'lucide-react';
 import { useAuth } from '../../hooks/useAuth';
@@ -7,8 +8,11 @@ export default function Navbar() {
   const navigate = useNavigate();
 
   const handleLogout = () => {
-    logout();
-    navigate('/login');
+    // Keep the provider and router updates together; cleanup still runs first.
+    startTransition(() => {
+      logout();
+      navigate('/', { replace: true });
+    });
   };
 
   return (

@@ -2,6 +2,14 @@
 
 Crea hábitos con un nombre, marca hoy y consulta un historial sencillo. El dashboard muestra sólo los hábitos activos; los que no usas quedan en **Hábitos ocultos**, sin perder su historial.
 
+## Acceso
+
+En la portada, **Iniciar sesión**, **Empezar con Google** y **Crear mi primer hábito** abren el mismo diálogo de Google, sin salir de la página. `/login` también muestra la portada con ese diálogo; los enlaces protegidos siguen pasando por esa entrada.
+
+Puedes cerrar con el botón, Escape o el fondo y volver al control que lo abrió. Mientras aparece **Ingresando...**, el cierre queda bloqueado para evitar cancelar una autenticación en curso. Los errores permiten volver a intentarlo; una sesión iniciada entra al dashboard sin pedir Google otra vez. **Salir** limpia la sesión y los registros locales de hoy antes de volver a la portada.
+
+La muestra de hábitos de la portada sigue siendo ilustrativa y no interactiva.
+
 ## Uso rápido
 
 1. En el dashboard, pulsa **Nuevo hábito**, escribe un título de 3 a 200 caracteres y pulsa **Crear hábito**.
@@ -28,6 +36,7 @@ La simplificación está completa: nombre, casilla de hoy, historial y ocultar/r
 
 - API: 653 pruebas unitarias y 123 HTTP con mocks, TypeScript y lint aprobados de forma independiente.
 - Frontend: 126 pruebas de comportamiento y 8 de presentación aprobadas con API sintética. Las de presentación comprueban áreas de 44 px, foco, contraste, estados y ausencia de desbordamiento a 375/320 px; capturan cuatro imágenes fuera del repositorio. TypeScript, lint y bundle en memoria del núcleo aprobados de forma independiente. No se leyeron archivos de entorno ni se añadieron dependencias.
+- Acceso en diálogo (L1): 154 pruebas de navegador aprobadas, conservando las 134 anteriores y añadiendo 20 casos de acceso, cancelación, foco, sesión y respuestas tardías, incluidas peticiones ajenas simultáneas. El widget de Google se sustituye sólo en las pruebas por un iframe sintético; las capturas de portada y diálogo se guardan fuera del repositorio a 1440/375/320 px.
 - Pendiente: revisión visual manual, integración con MongoDB/Google reales y build generado de Nest. Las pruebas de navegador usan una API sintética.
 
 La evidencia y los commits están en los registros de [simplificación](../odd/tasks/minimalist-core.md) y [pulido visual](../odd/tasks/minimalist-ui-polish.md).

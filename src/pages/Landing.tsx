@@ -1,5 +1,8 @@
 import { ArrowRight, Check, CheckCheck, History, Leaf, Plus } from 'lucide-react';
-import { Link } from 'react-router-dom';
+import { useState } from 'react';
+import { Link, useNavigate } from 'react-router-dom';
+import { useAuth } from '../hooks/useAuth';
+import LoginModal from '../components/auth/LoginModal';
 
 const focus = 'focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-emerald-300';
 const primaryLink = `inline-flex min-h-12 items-center justify-center gap-2 rounded-xl bg-indigo-600 px-6 py-3 font-semibold text-white transition-colors hover:bg-indigo-500 ${focus}`;
@@ -19,7 +22,23 @@ const sampleHabits = [
   { title: 'Estirar al despertar', done: false },
 ];
 
-export default function Landing() {
+export default function Landing({ initialLoginOpen = false }: { initialLoginOpen?: boolean }) {
+  const { user, isLoading } = useAuth();
+  const navigate = useNavigate();
+  const [loginOpen, setLoginOpen] = useState(initialLoginOpen);
+  const loginCta = (label: string, className: string, arrow = false) => {
+    const content = <>{label}{arrow && <ArrowRight size={18} aria-hidden='true' />}</>;
+    return user ? (
+      <Link to='/dashboard' className={className}>{content}</Link>
+    ) : (
+      <button type='button' disabled={isLoading} onClick={() => setLoginOpen(true)} className={className}>{content}</button>
+    );
+  };
+  const closeLogin = () => {
+    setLoginOpen(false);
+    if (initialLoginOpen) navigate('/', { replace: true });
+  };
+
   return (
     <div className='min-h-screen bg-slate-950 text-slate-100'>
       <a href='#contenido' className={`sr-only z-50 rounded-lg bg-slate-100 p-3 text-slate-950 focus:not-sr-only focus:fixed focus:left-4 focus:top-4 ${focus}`}>
@@ -33,7 +52,7 @@ export default function Landing() {
           </Link>
           <div className='flex flex-wrap items-center gap-5 text-sm'>
             <a href='#como-funciona' className={`hidden rounded-md text-slate-300 hover:text-white sm:inline ${focus}`}>Cómo funciona</a>
-            <Link to='/login' className={`rounded-lg border border-slate-600 px-4 py-2 font-medium hover:border-indigo-400 hover:bg-indigo-400/10 ${focus}`}>Iniciar sesión</Link>
+            {loginCta('Iniciar sesión', `min-h-11 rounded-lg border border-slate-600 px-4 py-2 font-medium hover:border-indigo-400 hover:bg-indigo-400/10 ${focus}`)}
           </div>
         </nav>
       </header>
@@ -53,7 +72,7 @@ export default function Landing() {
                 Crea hábitos, registra lo que completas cada día y consulta tu historial. Un lugar sencillo para volver a lo que te importa.
               </p>
               <div className='mt-8 flex flex-wrap items-center gap-5'>
-                <Link to='/login' className={primaryLink}>Empezar con Google <ArrowRight size={18} aria-hidden='true' /></Link>
+                {loginCta('Empezar con Google', primaryLink, true)}
                 <a href='#como-funciona' className={`rounded-md py-3 text-sm font-medium text-slate-300 hover:text-white ${focus}`}>Ver cómo funciona ↓</a>
               </div>
               <p className='mt-4 text-xs text-slate-400'>El siguiente paso es iniciar sesión con Google.</p>
@@ -124,7 +143,7 @@ export default function Landing() {
             <Leaf size={28} aria-hidden='true' className='mx-auto mb-5 text-emerald-300' />
             <h2 id='start-title' className='text-3xl font-semibold tracking-tight'>Tu próximo hábito empieza contigo.</h2>
             <p className='mx-auto mb-7 mt-4 max-w-lg leading-relaxed text-slate-300'>Elige algo pequeño, hazlo tuyo y vuelve para registrar tu día.</p>
-            <Link to='/login' className={primaryLink}>Crear mi primer hábito <ArrowRight size={18} aria-hidden='true' /></Link>
+            {loginCta('Crear mi primer hábito', primaryLink, true)}
           </div>
         </section>
       </main>
@@ -135,6 +154,7 @@ export default function Landing() {
           <a href='#contenido' className={`rounded-md text-slate-300 hover:text-white ${focus}`}>Volver al inicio ↑</a>
         </div>
       </footer>
+      {loginOpen && !isLoading && <LoginModal onClose={closeLogin} />}
     </div>
   );
 }

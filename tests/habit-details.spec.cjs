@@ -308,7 +308,7 @@ test('late unmounted check cannot refill cache after logout', async ({ page, api
     await check(page).click();
     await expect.poll(() => calls(api, '/habits/read/check', 'POST').length).toBe(1);
     await page.getByRole('button', { name: 'Salir', exact: true }).click();
-    await expect(page).toHaveURL(`${origin}/login`);
+    await expect(page).toHaveURL(`${origin}/`);
   } finally { pending.release(); }
   await page.clock.runFor(1000);
   expect(await page.evaluate(() => localStorage.getItem('completedHabits_2026-03-31'))).toBeNull();
