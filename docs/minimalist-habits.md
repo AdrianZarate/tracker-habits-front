@@ -40,7 +40,9 @@ La simplificación está completa: nombre, casilla de hoy, historial y ocultar/r
 - Filas y muestra local (L2): 157/157 pruebas de navegador aprobadas, conservando las 154 de L1. Los tres casos nuevos comprueban la muestra anónima y autenticada: marcado reversible con Espacio, cero peticiones de datos o escrituras locales al marcar, conservación al cerrar el diálogo y reinicio al recargar. Las comprobaciones de presentación mantienen áreas de 44 px, círculo de 28 px, foco, contraste ≥ 4,5 y nombres largos a 375/320 px. Capturas de dashboard y muestra interactiva fuera del repositorio; TypeScript, lint y bundle en memoria aprobados.
 - Pendiente: revisión visual manual, integración con MongoDB/Google reales y build generado de Nest. Las pruebas de navegador usan una API sintética.
 
-La evidencia y los commits están en los registros de [simplificación](../odd/tasks/minimalist-core.md) y [pulido visual](../odd/tasks/minimalist-ui-polish.md).
+La verificación final independiente confirmó las 157 pruebas, TypeScript, lint y bundle en memoria. Las capturas de landing, modal y dashboard se revisaron en escritorio y móvil; eso no sustituye la aceptación con Google real.
+
+La evidencia y los commits están en los registros de [simplificación](../odd/tasks/minimalist-core.md), [pulido visual](../odd/tasks/minimalist-ui-polish.md) y [acceso y muestra local](../odd/tasks/landing-login-and-demo.md).
 
 ## Datos de compatibilidad de navegadores
 
