@@ -43,9 +43,9 @@ La simplificación está completa: nombre, casilla de hoy, historial y ocultar/r
 - Pulido del diálogo (P1): 160/160 pruebas de navegador aprobadas, incluidas las 157 anteriores. Los tres casos nuevos comprueban encabezado compacto, contraste ≥ 4,5, foco, propiedades oficiales, iframe de 260 px para un botón nominal de 240 px, errores largos y altura estable al ingresar a 1440/375/320 px. Nueve capturas externas usan un proveedor sintético, no acreditan el aspecto de Google real. TypeScript, lint y bundle en memoria aprobados; flujo de credenciales y guardas sin cambios.
 - Pendiente: revisión visual manual, integración con MongoDB/Google reales y build generado de Nest. Las pruebas de navegador usan una API sintética.
 
-La verificación final independiente confirmó las 157 pruebas, TypeScript, lint y bundle en memoria. Las capturas de landing, modal y dashboard se revisaron en escritorio y móvil; eso no sustituye la aceptación con Google real.
+La verificación final independiente confirmó las 160 pruebas, TypeScript, lint y bundle en memoria. Las capturas de landing, modal y dashboard se revisaron en escritorio y móvil; eso no sustituye la aceptación con Google real.
 
-La evidencia y los commits están en los registros de [simplificación](../odd/tasks/minimalist-core.md), [pulido visual](../odd/tasks/minimalist-ui-polish.md) y [acceso y muestra local](../odd/tasks/landing-login-and-demo.md).
+La evidencia y los commits están en los registros de [simplificación](../odd/tasks/minimalist-core.md), [pulido visual](../odd/tasks/minimalist-ui-polish.md), [acceso y muestra local](../odd/tasks/landing-login-and-demo.md) y [pulido del diálogo](../odd/tasks/login-modal-polish.md).
 
 ## Datos de compatibilidad de navegadores
 
