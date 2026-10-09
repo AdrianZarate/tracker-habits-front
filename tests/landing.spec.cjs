@@ -77,7 +77,7 @@ for (const width of [1440, 375]) {
     const names = ['Leer 10 minutos', 'Dar un paseo', 'Estirar al despertar'];
     const initial = [true, true, false];
     const history = preview.getByText('Ejemplo de registros completados: 12 y 13 de mayo.');
-    await expect(preview.getByText('Datos de ejemplo. Puedes marcar/desmarcar; los cambios no se guardan ni pertenecen a tu cuenta.', { exact: true })).toBeVisible();
+    await expect(preview.getByText('Datos de ejemplo. Puedes marcar/desmarcar; los cambios no se guardan ni pertenecen a tu cuenta.', { exact: true })).toHaveCount(0);
     const storage = await page.evaluate(() => {
       window.demoStorageWrites = [];
       for (const method of ['setItem', 'removeItem', 'clear']) {

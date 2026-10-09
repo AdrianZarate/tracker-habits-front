@@ -109,7 +109,6 @@ export default function Landing({ initialLoginOpen = false }: { initialLoginOpen
                 <p className='flex items-center gap-2 text-sm font-medium'><History size={16} aria-hidden='true' className='text-indigo-300' />Historial · Leer 10 minutos</p>
                 <p className='mt-3 text-xs leading-relaxed text-slate-400'>Ejemplo de registros completados: 12 y 13 de mayo.</p>
               </div>
-              <p className='mt-4 text-xs leading-relaxed text-slate-400'>Datos de ejemplo. Puedes marcar/desmarcar; los cambios no se guardan ni pertenecen a tu cuenta.</p>
             </figure>
           </div>
         </section>
