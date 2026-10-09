@@ -177,9 +177,10 @@ for (const width of [1440, 375, 320]) {
     for (const selector of ['h2', '.login-subtitle', '.login-footer', '.login-close']) {
       await expectContrast(dialog.locator(selector), dialog);
     }
+    await expect(dialog.locator('.login-subtitle')).toHaveText('Inicia sesión o crea tu cuenta con Google.');
     await expect(googleButton(page)).toBeVisible();
     expect(await page.evaluate(() => window.mockGoogleOptions)).toMatchObject({
-      theme: 'outline', shape: 'pill', text: 'signin_with', width: '240', size: 'large',
+      theme: 'outline', shape: 'pill', text: 'continue_with', width: '240', size: 'large',
     });
     const frame = await dialog.locator('iframe').boundingBox();
     // Match the light provider document so Chromium can keep its canvas transparent.

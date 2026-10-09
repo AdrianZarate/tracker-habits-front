@@ -122,7 +122,7 @@ export default function LoginModal({ onClose }: { onClose: () => void }) {
       <header className='login-header'>
         <span className='login-mark' aria-hidden='true'><Leaf size={24} /></span>
         <h2 id={titleId} className='login-title'>Iniciar sesión</h2>
-        <p id={subtitleId} className='login-subtitle'>Vuelve a tus hábitos.<br />Continúa con tu cuenta de Google.</p>
+        <p id={subtitleId} className='login-subtitle'>Inicia sesión o crea tu cuenta con Google.</p>
       </header>
       {error && <p role='alert' className='login-error'>{error}</p>}
       <div className='login-action'>
@@ -145,7 +145,7 @@ export default function LoginModal({ onClose }: { onClose: () => void }) {
             theme='outline'
             size='large'
             shape='pill'
-            text='signin_with'
+            text='continue_with'
             width='240'
             useOneTap={false}
           />
