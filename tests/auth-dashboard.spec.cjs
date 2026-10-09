@@ -323,6 +323,39 @@ test('stale Google response guard does not poison a new login attempt after rout
   expect(await page.evaluate(() => localStorage.getItem('token'))).toBe(session.token);
 });
 
+test('authenticated landing example stays local and never becomes an account habit', async ({ page, mockApi }) => {
+  await storeSession(page);
+  await page.goto(origin);
+  const cta = page.getByRole('link', { name: 'Empezar con Google' });
+  await expect(cta).toBeVisible();
+  const calls = [...mockApi.calls];
+  const storage = await page.evaluate(() => {
+    window.demoStorageWrites = [];
+    for (const method of ['setItem', 'removeItem', 'clear']) {
+      const original = Storage.prototype[method];
+      Storage.prototype[method] = function (...args) {
+        window.demoStorageWrites.push([method, ...args]);
+        return original.apply(this, args);
+      };
+    }
+    return [Object.entries(localStorage), Object.entries(sessionStorage)];
+  });
+  const example = page.getByRole('figure').getByRole('checkbox', { name: 'Estirar al despertar', exact: true });
+  await example.focus();
+  await page.keyboard.press('Space');
+  await expect(example).toBeChecked();
+  await page.keyboard.press('Space');
+  await expect(example).not.toBeChecked();
+  expect(mockApi.calls).toEqual(calls);
+  expect(await page.evaluate(() => window.demoStorageWrites)).toEqual([]);
+  expect(await page.evaluate(() => [Object.entries(localStorage), Object.entries(sessionStorage)])).toEqual(storage);
+  await cta.click();
+  await expect(habitRow(page, 'Leer')).toBeVisible();
+  await expect(page.getByRole('checkbox')).toHaveCount(1);
+  await expect(page.getByText(/Vista ilustrativa|Datos de ejemplo|12 y 13 de mayo|Estirar al despertar/)).toHaveCount(0);
+  expect(mockApi.calls.filter(c => c.method !== 'GET')).toEqual([]);
+});
+
 test('authenticated landing CTAs enter dashboard without requesting Google again, logout replaces route and clears session', async ({ page, mockApi }) => {
   await storeSession(page);
   await page.goto(origin);
@@ -812,17 +845,49 @@ test('presentation desktop has bordered cards, inline CTA, readable colors and k
   expect(await cta.evaluate(el => getComputedStyle(el).position)).not.toBe('fixed');
   await expectContrast(cta);
   await expectContrast(link, row);
-  await expectContrast(row.locator('label'), row);
+  await expectContrast(row.locator('.habit-status'), row);
+  const doneRow = habitRow(page, 'Caminar al aire libre');
+  await expect(row.locator('.habit-status')).toHaveText('Sin completar hoy');
+  await expect(doneRow.locator('.habit-status')).toHaveText('Completado hoy');
+  await expect(doneRow.locator('.habit-circle svg')).toHaveCount(1);
+  await expect(row.locator('.habit-circle svg')).toHaveCount(0);
+  const circleBox = await row.locator('.habit-circle').boundingBox(), titleBox = await link.boundingBox();
+  expect(circleBox.width).toBe(28);
+  expect(circleBox.x + circleBox.width).toBeLessThanOrEqual(titleBox.x);
+  await expectContrast(doneRow.locator('.habit-status'), doneRow);
+  await expectContrast(doneRow.locator('.habit-circle'));
+  await expect(page.getByRole('region', { name: 'Tus hábitos de hoy', exact: true })).toBeVisible();
+  await expect(page.getByText(/Vista ilustrativa|Datos de ejemplo|12 y 13 de mayo/)).toHaveCount(0);
   await expectContrast(page.getByText('1 de 3 completados hoy'), page.locator('body'));
   await cta.hover();
   await expectContrast(cta);
-  await link.focus();
+  await todayCheck(page).focus();
+  expect(await row.locator('.habit-circle').evaluate(el => parseFloat(getComputedStyle(el).outlineWidth))).toBeGreaterThanOrEqual(2);
+  await page.keyboard.press('Space');
+  await expect(todayCheck(page)).toBeChecked();
+  await expect(row.locator('.habit-status')).toHaveText('Completado hoy');
+  // Pending disables the native input and may release focus; reacquire it for undo.
+  await expect(todayCheck(page)).toBeEnabled();
+  await todayCheck(page).focus();
+  await page.keyboard.press('Space');
+  await expect(todayCheck(page)).not.toBeChecked();
   await page.keyboard.press('Tab');
-  await expect(todayCheck(page)).toBeFocused();
-  expect(await todayCheck(page).evaluate(el => parseFloat(getComputedStyle(el).outlineWidth))).toBeGreaterThanOrEqual(2);
+  await expect(link).toBeFocused();
+  expect(mockApi.calls.filter(c => c.path.endsWith('/check')).map(c => c.body)).toEqual([null]);
+  expect(mockApi.calls.filter(c => c.path.endsWith('/incomplete')).map(c => c.body)).toEqual([null]);
   await expect(page.getByRole('heading', { level: 1 })).toBeVisible();
   await expect(page.getByRole('combobox')).toHaveCount(0);
   await page.screenshot({ path: testInfo.outputPath('dashboard-desktop.png'), fullPage: true });
+  await expect(row.locator('label a')).toHaveCount(0);
+  const writes = mockApi.calls.filter(c => c.method !== 'GET');
+  const headers = { 'access-control-allow-origin': origin };
+  await page.route('**/habits/read', route => route.fulfill({ json: mockApi.habits[0], headers }));
+  await page.route('**/habits/read/logs', route => route.fulfill({ json: [], headers }));
+  await link.focus();
+  await page.keyboard.press('Enter');
+  await expect(page).toHaveURL(`${origin}/habits/read`);
+  await expect(page.getByRole('heading', { name: 'Historial del mes actual de la cuenta', exact: true })).toBeVisible();
+  expect(mockApi.calls.filter(c => c.method !== 'GET')).toEqual(writes);
 });
 
 for (const width of [375, 320]) {
@@ -884,17 +949,21 @@ test('presentation pending and completed states preserve native checkbox and dis
   await openDashboard(page, mockApi);
   const row = habitRow(page, 'Leer'), checkbox = todayCheck(page);
   const originalBorder = await row.evaluate(el => getComputedStyle(el).borderTopColor);
+  await expect(row.locator('.habit-status')).toHaveText('Sin completar hoy');
   const held = deferred(); mockApi.beforeMutation = () => held.promise;
   try {
     await checkbox.click();
     await expect(checkbox).toBeDisabled();
     await expect(row).toHaveAttribute('aria-busy', 'true');
     expect(await row.locator('label').evaluate(el => getComputedStyle(el).cursor)).toBe('wait');
+    await expect(row.locator('.habit-status')).toHaveText('Guardando...');
   } finally { held.release(); }
   await expect(checkbox).toBeChecked();
   await expect(row).toHaveAttribute('aria-busy', 'false');
   expect(await row.evaluate(el => getComputedStyle(el).borderTopColor)).not.toBe(originalBorder);
-  await expectContrast(row.locator('label'), row);
+  await expect(row.locator('.habit-status')).toHaveText('Completado hoy');
+  await expectContrast(row.locator('.habit-status'), row);
+  await expectContrast(row.locator('.habit-circle'));
   expect(await checkbox.evaluate(el => getComputedStyle(el).transitionDuration)).toBe('0s');
   expect(mockApi.calls.filter(c => c.path.endsWith('/check'))).toHaveLength(1);
 });

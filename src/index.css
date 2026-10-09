@@ -105,6 +105,61 @@
     cursor: wait;
   }
 
+  .habit-row {
+    @apply flex min-w-0 items-center gap-1 rounded-xl border border-slate-700 bg-slate-800/60 px-2 py-3 sm:gap-2 sm:px-3;
+  }
+
+  .habit-row-done {
+    border-color: #3f7763;
+  }
+
+  .today-toggle.habit-toggle {
+    position: relative;
+    flex-shrink: 0;
+    width: 44px;
+    height: 44px;
+    padding: 8px;
+  }
+
+  /* Keep the native input over the entire hit area; paint only the circle. */
+  .habit-toggle input[type='checkbox'] {
+    position: absolute;
+    inset: 0;
+    width: 44px;
+    height: 44px;
+    margin: 0;
+    opacity: 0;
+    cursor: inherit;
+  }
+
+  .habit-circle {
+    @apply flex h-7 w-7 shrink-0 items-center justify-center rounded-full border border-slate-500;
+  }
+
+  .habit-toggle input:checked + .habit-circle {
+    border-color: #6ee7b7;
+    background-color: #6ee7b7;
+    color: #020617;
+  }
+
+  .habit-toggle input:focus-visible + .habit-circle {
+    outline: 2px solid #a5b4fc;
+    outline-offset: 3px;
+  }
+
+  .habit-toggle input:disabled + .habit-circle {
+    opacity: 0.6;
+  }
+
+  .habit-status {
+    @apply text-xs leading-relaxed;
+    color: var(--color-muted);
+  }
+
+  .habit-status-done {
+    color: #6ee7b7;
+  }
+
   .state-panel {
     @apply surface px-5 py-8 text-center leading-relaxed;
   }

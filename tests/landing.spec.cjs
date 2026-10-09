@@ -64,6 +64,77 @@ test('responsive layout, skip link and keyboard navigation', async ({ page }) =>
   await expect(page.getByRole('dialog', { name: 'Iniciar sesión' })).toBeVisible();
 });
 
+for (const width of [1440, 375]) {
+  test(`local example ${width}px is reversible, keyboard accessible and never persists or requests data`, async ({ page }, testInfo) => {
+    await page.setViewportSize({ width, height: 900 });
+    const dataRequests = [];
+    page.on('request', request => {
+      if (['fetch', 'xhr'].includes(request.resourceType())) dataRequests.push(request.url());
+    });
+    await page.goto(origin);
+    const preview = page.getByRole('figure', { name: 'Vista ilustrativa · datos de ejemplo' });
+    const rows = preview.getByRole('listitem');
+    const names = ['Leer 10 minutos', 'Dar un paseo', 'Estirar al despertar'];
+    const initial = [true, true, false];
+    const history = preview.getByText('Ejemplo de registros completados: 12 y 13 de mayo.');
+    await expect(preview.getByText('Datos de ejemplo. Puedes marcar/desmarcar; los cambios no se guardan ni pertenecen a tu cuenta.', { exact: true })).toBeVisible();
+    const storage = await page.evaluate(() => {
+      window.demoStorageWrites = [];
+      for (const method of ['setItem', 'removeItem', 'clear']) {
+        const original = Storage.prototype[method];
+        Storage.prototype[method] = function (...args) {
+          window.demoStorageWrites.push([method, ...args]);
+          return original.apply(this, args);
+        };
+      }
+      return [Object.entries(localStorage), Object.entries(sessionStorage)];
+    });
+    for (let i = 0; i < names.length; i++) {
+      const row = rows.nth(i), checkbox = row.getByRole('checkbox', { name: names[i], exact: true });
+      await expect(checkbox).toBeChecked({ checked: initial[i] });
+      await expect(row.locator('.habit-status')).toHaveText(initial[i] ? 'Completado hoy' : 'Sin completar hoy');
+      await expectContrast(row.locator('.habit-status'), row);
+      if (initial[i]) await expectContrast(row.locator('.habit-circle'));
+      const box = await row.locator('label').boundingBox();
+      expect(box.width).toBeGreaterThanOrEqual(44);
+      expect(box.height).toBeGreaterThanOrEqual(44);
+      const circle = row.locator('.habit-circle');
+      expect((await circle.boundingBox()).width).toBe(28);
+      await checkbox.focus();
+      await page.keyboard.press('Space');
+      await expect(checkbox).toBeChecked({ checked: !initial[i] });
+      await expect(row.locator('.habit-status')).toHaveText(initial[i] ? 'Sin completar hoy' : 'Completado hoy');
+      expect(await circle.evaluate(el => parseFloat(getComputedStyle(el).outlineWidth))).toBeGreaterThanOrEqual(2);
+      await page.keyboard.press('Space');
+      await expect(checkbox).toBeChecked({ checked: initial[i] });
+      await expect(row.locator('.habit-status')).toHaveText(initial[i] ? 'Completado hoy' : 'Sin completar hoy');
+    }
+    await rows.first().getByRole('checkbox').click();
+    await page.getByRole('button', { name: 'Empezar con Google' }).click();
+    await page.keyboard.press('Escape');
+    await expect(rows.first().getByRole('checkbox')).not.toBeChecked();
+    await expect(history).toHaveText('Ejemplo de registros completados: 12 y 13 de mayo.');
+    expect(dataRequests).toEqual([]);
+    expect(await page.evaluate(() => window.demoStorageWrites)).toEqual([]);
+    expect(await page.evaluate(() => [Object.entries(localStorage), Object.entries(sessionStorage)])).toEqual(storage);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+    await page.screenshot({ path: testInfo.outputPath(width === 1440 ? 'landing-interactive-example-desktop.png' : 'landing-interactive-example-mobile.png'), fullPage: true });
+    await page.reload();
+    for (let i = 0; i < names.length; i++) await expect(rows.nth(i).getByRole('checkbox')).toBeChecked({ checked: initial[i] });
+    expect(dataRequests).toEqual([]);
+  });
+}
+
+async function expectContrast(locator, surface = locator) {
+  const foreground = await locator.evaluate(el => getComputedStyle(el).color);
+  const background = await surface.evaluate(el => getComputedStyle(el).backgroundColor);
+  const luminance = color => color.match(/[\d.]+/g).slice(0, 3).map(Number)
+    .map(n => n / 255).map(n => n <= 0.04045 ? n / 12.92 : ((n + 0.055) / 1.055) ** 2.4)
+    .reduce((sum, n, i) => sum + n * [0.2126, 0.7152, 0.0722][i], 0);
+  const values = [luminance(foreground), luminance(background)].sort((a, b) => b - a);
+  expect((values[0] + 0.05) / (values[1] + 0.05)).toBeGreaterThanOrEqual(4.5);
+}
+
 test('existing login, protected routes and wildcard keep their signed-out behavior', async ({ page }) => {
   for (const route of ['/login', '/dashboard', '/habits/example', '/not-a-route']) {
     await page.goto(`${origin}${route}`);

@@ -1,3 +1,4 @@
+import { Check } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import type { Habit } from '../../api/habits.api';
 
@@ -9,17 +10,22 @@ interface HabitCardProps {
 
 export default function HabitCard({ habit, pending, onLog }: HabitCardProps) {
   return (
-    <li aria-busy={pending}
-      className={`surface flex min-w-0 flex-col gap-3 px-5 py-4 sm:flex-row sm:items-center sm:justify-between
-        ${habit.completedToday ? 'border-[#3f7763] bg-[#152b2b]' : ''}`}>
-      <Link to={`/habits/${habit.habitId}`} className='block min-h-11 min-w-0 flex-1 break-words py-2 text-base font-semibold leading-relaxed text-dark-text hover:underline'>
-        {habit.title}
-      </Link>
-      <label className='today-toggle shrink-0 self-start bg-dark-bg/30 text-dark-muted sm:self-auto'>
-        <input type='checkbox' checked={!!habit.completedToday} disabled={pending}
+    <li aria-busy={pending} className={`habit-row ${habit.completedToday ? 'habit-row-done' : ''}`}>
+      <label className='today-toggle habit-toggle'>
+        <input type='checkbox' aria-label='Completado hoy' checked={!!habit.completedToday} disabled={pending}
           onChange={() => onLog(habit.habitId, !!habit.completedToday)} />
-        Completado hoy
+        <span aria-hidden='true' className='habit-circle'>
+          {habit.completedToday && <Check size={17} />}
+        </span>
       </label>
+      <div className='min-w-0 flex-1'>
+        <Link to={`/habits/${habit.habitId}`} className='flex min-h-11 min-w-0 items-center py-2 text-sm font-semibold leading-relaxed text-dark-text hover:underline'>
+          <span className='min-w-0 break-words'>{habit.title}</span>
+        </Link>
+        <p aria-live='polite' className={`habit-status ${habit.completedToday && !pending ? 'habit-status-done' : ''}`}>
+          {pending ? 'Guardando...' : habit.completedToday ? 'Completado hoy' : 'Sin completar hoy'}
+        </p>
+      </div>
     </li>
   );
 }

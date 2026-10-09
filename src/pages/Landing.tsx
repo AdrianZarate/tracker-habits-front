@@ -26,6 +26,7 @@ export default function Landing({ initialLoginOpen = false }: { initialLoginOpen
   const { user, isLoading } = useAuth();
   const navigate = useNavigate();
   const [loginOpen, setLoginOpen] = useState(initialLoginOpen);
+  const [exampleHabits, setExampleHabits] = useState(sampleHabits);
   const loginCta = (label: string, className: string, arrow = false) => {
     const content = <>{label}{arrow && <ArrowRight size={18} aria-hidden='true' />}</>;
     return user ? (
@@ -87,14 +88,19 @@ export default function Landing({ initialLoginOpen = false }: { initialLoginOpen
                 <span className='rounded-full bg-emerald-400/10 px-3 py-1 text-xs text-emerald-300'>Paso a paso</span>
               </div>
               <ul className='space-y-3'>
-                {sampleHabits.map(({ title, done }) => (
-                  <li key={title} className='flex items-center gap-3 rounded-xl border border-slate-700 bg-slate-800/60 p-4'>
-                    <span aria-hidden='true' className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-full ${done ? 'bg-emerald-300 text-slate-950' : 'border border-slate-500'}`}>
-                      {done && <Check size={17} />}
-                    </span>
+                {exampleHabits.map(({ title, done }) => (
+                  <li key={title} className='habit-row'>
+                    <label className='today-toggle habit-toggle'>
+                      <input type='checkbox' aria-label={title} checked={done}
+                        onChange={() => setExampleHabits(current => current.map(habit =>
+                          habit.title === title ? { ...habit, done: !habit.done } : habit))} />
+                      <span aria-hidden='true' className='habit-circle'>
+                        {done && <Check size={17} />}
+                      </span>
+                    </label>
                     <div className='min-w-0'>
-                      <p className='text-sm font-medium'>{title}</p>
-                      <p className={`mt-1 text-xs ${done ? 'text-emerald-300' : 'text-slate-400'}`}>{done ? 'Completado hoy' : 'Sin completar hoy'}</p>
+                      <p className='break-words text-sm font-medium'>{title}</p>
+                      <p className={`habit-status ${done ? 'habit-status-done' : ''}`}>{done ? 'Completado hoy' : 'Sin completar hoy'}</p>
                     </div>
                   </li>
                 ))}
@@ -103,7 +109,7 @@ export default function Landing({ initialLoginOpen = false }: { initialLoginOpen
                 <p className='flex items-center gap-2 text-sm font-medium'><History size={16} aria-hidden='true' className='text-indigo-300' />Historial · Leer 10 minutos</p>
                 <p className='mt-3 text-xs leading-relaxed text-slate-400'>Ejemplo de registros completados: 12 y 13 de mayo.</p>
               </div>
-              <p className='mt-4 text-xs leading-relaxed text-slate-400'>Esta muestra no es interactiva ni contiene datos de tu cuenta.</p>
+              <p className='mt-4 text-xs leading-relaxed text-slate-400'>Datos de ejemplo. Puedes marcar/desmarcar; los cambios no se guardan ni pertenecen a tu cuenta.</p>
             </figure>
           </div>
         </section>
