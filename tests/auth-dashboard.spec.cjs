@@ -29,10 +29,18 @@ const test = base.extend({
         return route.fulfill({ contentType: 'application/javascript', body: `window.google = { accounts: { id: {
           initialize: o => window.mockGoogle = o.callback,
           renderButton: (el, options) => {
+            // Simulate GSI's 20px wider iframe, not real provider pixels or branding.
+            window.mockGoogleOptions = options;
+            const wrapper = document.createElement('div'); wrapper.style.width = options.width + 'px';
             const frame = document.createElement('iframe'); frame.title = 'Iniciar sesión con Google';
-            frame.width = options.width; frame.height = 40; frame.style.border = '0';
-            frame.srcdoc = '<button style="width:100%;height:40px" onclick="parent.mockGoogle({credential: \\'synthetic-token\\'})">Google sintético</button>';
-            el.replaceChildren(frame);
+            frame.width = Number(options.width) + 20; frame.height = 44;
+            frame.style.cssText = 'border:0;display:block;margin:-2px -10px';
+            const outline = options.theme === 'outline', pill = options.shape === 'pill';
+            frame.srcdoc = '<style>html{color-scheme:light}html,body{background:transparent}body{margin:2px 10px}button{box-sizing:border-box;width:100%;height:40px;border:1px solid #dadce0;font:500 14px Arial;background:'
+              + (outline ? '#fff;color:#3c4043' : '#202124;color:#fff') + ';border-radius:'
+              + (pill ? '20px' : '4px') + '}button:focus-visible{outline:2px solid #4f46e5;outline-offset:0}</style>'
+              + '<button onclick="parent.mockGoogle({credential: \\'synthetic-token\\'})">Google sintético</button>';
+            wrapper.append(frame); el.replaceChildren(wrapper);
           }, cancel: () => {}
         } } };` });
       }
@@ -144,6 +152,78 @@ for (const width of [1440, 375, 320]) {
     await page.mouse.click(3, 3);
     await expect(dialog).toHaveCount(0);
     await expect(cta).toBeFocused();
+  });
+}
+
+for (const width of [1440, 375, 320]) {
+  test(`login polish ${width}px balances header, official props, errors and pending geometry`, async ({ page, mockApi }, testInfo) => {
+    await page.setViewportSize({ width, height: 740 });
+    await page.emulateMedia({ reducedMotion: 'reduce' });
+    const warnings = [];
+    page.on('console', message => { if (message.type() === 'warning') warnings.push(message.text()); });
+    await page.goto(origin);
+    await page.getByRole('button', { name: 'Empezar con Google' }).click();
+    const dialog = page.getByRole('dialog', { name: 'Iniciar sesión' });
+    const close = dialog.getByRole('button', { name: 'Cerrar inicio de sesión' });
+    await expect(close).toBeFocused();
+    await expectTapTarget(close);
+    const padding = await dialog.evaluate(el => parseFloat(getComputedStyle(el).paddingTop));
+    expect(padding, 'Productive header replaces the old 72px blank top').toBeLessThanOrEqual(32);
+    const box = await dialog.boundingBox(), mark = await dialog.locator('.login-mark').boundingBox();
+    expect(box.width).toBeLessThanOrEqual(400);
+    expect(Math.abs(mark.x + mark.width / 2 - box.x - box.width / 2)).toBeLessThanOrEqual(1);
+    expect(mark.y - box.y).toBeLessThanOrEqual(33);
+    expect(await close.evaluate(el => parseFloat(getComputedStyle(el).outlineWidth))).toBeGreaterThanOrEqual(2);
+    for (const selector of ['h2', '.login-subtitle', '.login-footer', '.login-close']) {
+      await expectContrast(dialog.locator(selector), dialog);
+    }
+    await expect(googleButton(page)).toBeVisible();
+    expect(await page.evaluate(() => window.mockGoogleOptions)).toMatchObject({
+      theme: 'outline', shape: 'pill', text: 'signin_with', width: '240', size: 'large',
+    });
+    const frame = await dialog.locator('iframe').boundingBox();
+    // Match the light provider document so Chromium can keep its canvas transparent.
+    expect(await dialog.locator('iframe').evaluate(el => getComputedStyle(el).colorScheme)).toBe('light');
+    expect(frame.width).toBe(260);
+    expect(frame.height).toBeGreaterThanOrEqual(44);
+    expect(frame.x).toBeGreaterThanOrEqual(box.x + 16);
+    expect(frame.x + frame.width).toBeLessThanOrEqual(box.x + box.width - 16);
+    await testInfo.attach('login-geometry', { contentType: 'application/json', body: Buffer.from(JSON.stringify({
+      viewport: width, dialog: box, iframe: frame, padding, options: await page.evaluate(() => window.mockGoogleOptions),
+    })) });
+    const noOverflow = async () => {
+      await expectNoOverflow(page);
+      expect(await dialog.evaluate(el => el.scrollWidth <= el.clientWidth)).toBe(true);
+    };
+    await noOverflow();
+    await page.keyboard.press('Tab');
+    await expect(googleButton(page)).toBeFocused();
+    await page.screenshot({ path: testInfo.outputPath(`polish-modal-${width}.png`) });
+    const held = deferred(); mockApi.beforeGoogle = () => held.promise;
+    mockApi.googleStatus = 500;
+    mockApi.googleMessage = 'No se pudo completar el acceso. '.repeat(12) + 'Detalle'.repeat(32);
+    try {
+      await googleButton(page).click();
+      await expect(dialog.getByRole('status')).toHaveText('Ingresando...');
+      await expect(close).toBeDisabled();
+      expect(Math.abs((await dialog.boundingBox()).height - box.height)).toBeLessThanOrEqual(2);
+      await expectContrast(dialog.getByRole('status'), dialog);
+      expect(await dialog.getByRole('status').evaluate(el => getComputedStyle(el).animationName)).toBe('none');
+      await noOverflow();
+      await page.screenshot({ path: testInfo.outputPath(`polish-pending-${width}.png`) });
+    } finally { held.release(); }
+    await expect(dialog.getByRole('alert')).toHaveText(mockApi.googleMessage);
+    await expectContrast(dialog.getByRole('alert'), dialog);
+    await noOverflow();
+    const errorBox = await dialog.boundingBox();
+    expect(errorBox.y).toBeGreaterThanOrEqual(0);
+    expect(errorBox.y + errorBox.height).toBeLessThanOrEqual(740);
+    await expect(googleButton(page)).toBeVisible();
+    expect(await page.evaluate(() => localStorage.getItem('token'))).toBeNull();
+    await page.screenshot({ path: testInfo.outputPath(`polish-error-${width}.png`) });
+    await page.keyboard.press('Escape');
+    await expect(dialog).toHaveCount(0);
+    expect(warnings).toEqual([]);
   });
 }
 

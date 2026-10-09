@@ -38,14 +38,18 @@
 
 @layer components {
   .login-dialog {
-    width: min(26rem, calc(100% - 2rem));
-    max-height: calc(100dvh - 2rem);
+    width: min(25rem, calc(100% - 1.5rem));
+    max-width: calc(100% - 1.5rem);
+    max-height: calc(100dvh - 1.5rem);
     margin: auto;
-    padding: 4.5rem 1rem 2rem;
+    padding: 28px 32px;
     overflow-y: auto;
     text-align: center;
     color: var(--color-text);
-    box-shadow: 0 24px 80px #0008;
+    background-color: #1b2238;
+    border: 1px solid #414b69;
+    border-radius: 24px;
+    box-shadow: inset 0 1px 0 #ffffff08, 0 24px 80px #0008;
   }
 
   .login-dialog::backdrop {
@@ -55,20 +59,112 @@
 
   .login-close {
     position: absolute;
-    top: 1rem;
-    right: 1rem;
+    top: 8px;
+    right: 8px;
+    display: grid;
+    place-items: center;
     width: 44px;
+    height: 44px;
     padding: 0;
+    border: 0;
+    border-radius: 50%;
+    background: transparent;
+    color: var(--color-muted);
+  }
+
+  .login-close:hover:not(:disabled) {
+    background: #ffffff08;
+    color: var(--color-text);
+  }
+
+  .login-close:disabled {
+    opacity: 0.6;
+  }
+
+  .login-mark {
+    display: grid;
+    place-items: center;
+    width: 48px;
+    height: 48px;
+    margin: 0 auto;
+    border: 1px solid #46517c;
+    border-radius: 16px;
+    background: #293252;
+    color: #c7d2fe;
+  }
+
+  .login-title {
+    margin: 16px 0 8px;
+    font-size: 24px;
+    line-height: 32px;
+    font-weight: 700;
+    letter-spacing: -0.025em;
+  }
+
+  .login-subtitle, .login-status {
+    color: var(--color-muted);
+    font-size: 14px;
+    line-height: 22px;
+  }
+
+  .login-error {
+    margin-top: 20px;
+    overflow-wrap: anywhere;
+    color: #fca5a5;
+    font-size: 14px;
+    line-height: 22px;
+  }
+
+  .login-action {
+    display: grid;
+    align-items: center;
+    min-height: 48px;
+    margin-top: 24px;
   }
 
   .login-google {
     display: flex;
+    align-items: center;
     justify-content: center;
     min-width: 0;
+    min-height: 48px;
+    /* GSI's iframe extends 10px beyond each side of its nominal button width. */
+    padding-inline: 10px;
+  }
+
+  .login-google > div {
+    display: flex;
+    align-items: center;
+    min-height: 48px;
   }
 
   .login-google iframe {
-    max-width: 100%;
+    /* Match GSI's light document; avoid Chromium's opaque dark/light canvas. */
+    color-scheme: light;
+  }
+
+  .login-footer {
+    margin-top: 16px;
+    color: var(--color-muted);
+    font-size: 12px;
+    line-height: 20px;
+  }
+
+  @media (max-width: 480px) {
+    .login-dialog {
+      padding: 20px 16px 24px;
+      border-radius: 20px;
+    }
+
+    .login-mark {
+      width: 44px;
+      height: 44px;
+      border-radius: 14px;
+    }
+
+    .login-title {
+      margin-top: 12px;
+    }
   }
 
   .page-shell {

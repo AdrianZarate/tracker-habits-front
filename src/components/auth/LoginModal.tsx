@@ -1,7 +1,7 @@
 import { useEffect, useId, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { GoogleLogin } from '@react-oauth/google';
-import { X } from 'lucide-react';
+import { Leaf, X } from 'lucide-react';
 import type { InternalAxiosRequestConfig } from 'axios';
 import { useAuth } from '../../hooks/useAuth';
 import apiClient from '../../api/axios';
@@ -105,7 +105,7 @@ export default function LoginModal({ onClose }: { onClose: () => void }) {
   return (
     <dialog
       ref={dialogRef}
-      className='login-dialog surface'
+      className='login-dialog'
       aria-labelledby={titleId}
       aria-describedby={subtitleId}
       aria-modal='true'
@@ -116,16 +116,20 @@ export default function LoginModal({ onClose }: { onClose: () => void }) {
         if (backdropStart.current && isBackdrop(event)) close();
       }}
     >
-      <button type='button' className='secondary-action login-close' aria-label='Cerrar inicio de sesión' disabled={isLoading} onClick={close} autoFocus>
+      <button type='button' className='login-close' aria-label='Cerrar inicio de sesión' disabled={isLoading} onClick={close} autoFocus>
         <X size={20} aria-hidden='true' />
       </button>
-      <h2 id={titleId} className='text-2xl font-bold text-dark-text'>Iniciar sesión</h2>
-      <p id={subtitleId} className='mb-7 mt-2 text-sm text-dark-muted'>Bienvenido de nuevo 👋 Accede con tu cuenta de Google.</p>
-      {error && <p role='alert' className='mb-4 break-words text-sm leading-relaxed text-red-300'>{error}</p>}
-      {isLoading ? (
-        <p role='status' className='text-sm text-dark-muted animate-pulse'>Ingresando...</p>
-      ) : (
-        <div className='login-google'>
+      <header className='login-header'>
+        <span className='login-mark' aria-hidden='true'><Leaf size={24} /></span>
+        <h2 id={titleId} className='login-title'>Iniciar sesión</h2>
+        <p id={subtitleId} className='login-subtitle'>Vuelve a tus hábitos.<br />Continúa con tu cuenta de Google.</p>
+      </header>
+      {error && <p role='alert' className='login-error'>{error}</p>}
+      <div className='login-action'>
+        {isLoading ? (
+          <p role='status' className='login-status'>Ingresando...</p>
+        ) : (
+          <div className='login-google'>
           <GoogleLogin
             onSuccess={({ credential }) => {
               if (!current() || pending.current) return;
@@ -138,15 +142,17 @@ export default function LoginModal({ onClose }: { onClose: () => void }) {
             onError={() => {
               if (current() && !pending.current) setError('Error al autenticar con Google.');
             }}
-            theme='filled_black'
+            theme='outline'
             size='large'
-            shape='rectangular'
+            shape='pill'
             text='signin_with'
             width='240'
             useOneTap={false}
           />
-        </div>
-      )}
+          </div>
+        )}
+      </div>
+      <p className='login-footer'>Sin crear una contraseña nueva.</p>
     </dialog>
   );
 }
