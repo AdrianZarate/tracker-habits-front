@@ -1,0 +1,52 @@
+# Landing login modal and illustration-style habits
+
+## Approved scope
+Login should open as a modal on the landing, successful authentication should enter the app, and logout should return to the landing. Match real Dashboard habit rows to the supplied illustration: bordered dark surfaces, round green checks, habit title and completion status. Make only the landing example tasks locally checkable/uncheckable; never persist demo changes or call account APIs.
+
+## Constraints
+- Keep the minimalist name/today/month-history/hide core, current Google auth provider and all ownership/session/calendar/request guards. No new product functions or API/backend edits.
+- Preserve Spanish UI, current dark/indigo palette, 44px targets, focus visibility and responsive overflow protections. Use existing icons/components, no dependencies/assets/fonts.
+- No private env reads/hashes, live API/Mongo/Google calls, dependency scripts, push, PR or deployment. User-authorized master-only commits; parent owns commits/task/mirror, single writer.
+- Preserve original API manifest/lock edits and both untracked .codegraph indexes; never initialize CodeGraph. Frontend baseline 19e3c25; manifest/lock/workspace must remain unchanged.
+
+## Tasks
+- [x] L1 — Landing-backed login modal and logout routing. Frontend master `08fdc99adfbec0488c92eaf766c0bb7e11feba1d`; native approval acknowledged and independent post-fix checks passed. Reuse existing Google credential/loginWithGoogle flow in a focused modal, preserve /login compatibility and protected-route entry, close/cancel back to landing, success to Dashboard and logout to /. Accessible dialog/focus/Escape/loading/error handling; no duplicate auth logic.
+- [x] L2 — Illustration-style real habit rows and local demo toggles. Frontend master `71ddeb1cc1a22cd29b2ce981b503c74acdbc18ed`; native approval acknowledged and independent checks passed. Rounded check/status rows with real Dashboard state and existing check/undo APIs. Landing sample tasks use in-memory state only, reset on reload, labeled examples; static sample history remains non-account data. No real history widget or synthetic content added to Dashboard.
+- [x] L3 — Final functional/visual verification and concise docs. Frontend documentation commit `f8a0b2681cf142e37fe4bdc24e05abc41bb122a9`; automated and agent visual acceptance complete, real Google/human limits recorded. Synthetic auth/core browser regression, responsive/focus/hit-area tests, external screenshots of landing/modal/dashboard/demo, types/lint/in-memory bundle, native work-unit reviews and honest live-integration limitations.
+
+## Design
+- Keep /login as an entry URL that displays the same landing with its modal open; landing CTA opens the modal directly. Avoid circular Landing/Login imports or a second OAuth provider/credential implementation.
+- Modal should manage focus and inert background, restore focus on dismissal, support Escape when safe, retain errors and prevent duplicate/pending auth submissions. Do not navigate from a stale completion after dismissal or account change.
+- Logout clears current session/cache using existing helpers before navigating to / with replacement; protected screens must not expose data through stale requests or back navigation.
+- Dashboard is real data: title link still opens owned history, native checkbox semantics remain accessible, disabled/pending states preserve mutation guards. The illustration label/sample history belong only to the landing.
+
+## Verification
+Existing external cached runner selects landing/auth-dashboard/calendar-session/habit-details specs; all affected test files are in the writer scope. Use applicable observed RED/GREEN, noEmit app/node, lint, envFile:false/build.write:false bundle, immutable manifest/lock hashes and external testInfo.outputPath screenshots. No normal pnpm build/dev or private-env reads. Temp logs/results/screenshots and ignored Vite cache are expected; pause source/task writes during snapshot runs.
+
+## L1 evidence
+- Existing Google credential/provider/API logic moved to native LoginModal; landing CTAs open at /, /login remains landing-backed compatibility entry, success enters Dashboard and logout clears session/cache then replaces route with /. Native focus/inert/scroll, Escape/backdrop, pending-close lock, duplicate/stale callback and response guards covered.
+- Initial RED 21 failures/125 passes (including two fixture/timing issues); 152-case GREEN. Independent source inspection found generic request capture could be overwritten by same-tick unrelated Axios requests. Follow-up tests reproduced RED 2 failures/152 passes with stale credential storage and unrelated rejection; fixed one-shot POST/auth/google + matching idToken binding. Final independent 154/154 passed; app/node types, lint, in-memory bundle (1815 modules), diff check, scope [], Vite stopped/port closed and unchanged dependency hashes.
+- Login screenshots at desktop/375/320 were independently read; parent read mobile375. No modal clipping/obscured controls found. Real Google provider appearance/backend behavior remain unverified, synthetic GSI/API only.
+- Commit `08fdc99adfbec0488c92eaf766c0bb7e11feba1d`:10 files +517/-94 (611 diff lines). High four-lens `review-ceadc039522c38b5` approved/exact acknowledgement burned. Nonblocking stale-login-lock at Modal97-100 is a separate follow-up, not a correction. ASSESS unassessable index; conservative independent functional fallback fulfilled.
+
+## L2 evidence
+- Real native checkbox rows now use left 28px circle, separate habit/history link and stored-completion status within a bordered Tus hábitos de hoy panel. Actual Dashboard handlers/routes/privacy guards unchanged; no example data/history inserted into the app.
+- Landing three example items are component-local state only, reversible keyboard/pointer toggles with no data requests or local/session-storage writes, reset on reload and retained across modal dismissal. Static example history stays labeled; disclaimer accurately states no account data/persistence.
+- RED 5 intended missing-demo/presentation failures with 152 passes; final writer/independent 157/157 passed (all 154 existing cases retained plus 3 new). App/node types, lint, in-memory bundle (1815 modules), diff checks, unchanged dependency hashes; scope [], Vite stopped, port closed, no browser-data warning. Keyboard test refocus after pending disable was a test correction, not a handler change.
+- Four external desktop/mobile Dashboard/demo captures independently read; parent read desktop/mobile Dashboard and desktop demo against supplied reference. No clipping or obscured controls. Commit `71ddeb1cc1a22cd29b2ce981b503c74acdbc18ed`:7 files +240/-29 (269 diff lines:114 source150 tests5 docs).
+- High four-lens `review-68e0f4d3a2a6d31b` approved without advisories/exact acknowledgement burned. Initial group model/transport failure prepared/submitted zero and admitted nothing; fresh STATUS reoffered slots, one risk capture then fresh complete remaining three group completed. No replayed result. ASSESS unassessable index; conservative independent functional fallback fulfilled.
+
+## L3 closure plan
+Reuse final independently observed unchanged-source 157 browser/type/lint/in-memory bundle and screenshot evidence. Confirm Git scope and update guide with final limits; no redundant suites for documentation-only close. Preserve API original dirty files/indexes and no deployment/push. Real Google/backend/human visual acceptance remain pending.
+
+## L3 final evidence and limits
+- Reused final independently observed 157/157 browser tests, zero skipped/failed/flaky cases, app/node noEmit, lint and env-free in-memory bundle (1815 modules) for unchanged source `71ddeb1cc1a22cd29b2ce981b503c74acdbc18ed`. L1 privacy/session/calendar checks, including same-tick unrelated-request guard regression, all retained. Core real Dashboard business handlers and API calls unchanged by L2.
+- Login captures at desktop/375/320 independently inspected; four Dashboard/demo desktop/mobile captures independently inspected and three also read by parent against user reference. Native keyboard/focus/44px labels, 28px circles, selected contrast, long-name/320375 overflow checks passed. No visible clipping/obscured controls found; not comprehensive accessibility/human acceptance.
+- Demo anonymous/authenticated toggles make no data requests or local/session-storage writes, reset on reload, retain across modal dismissal. Example history remains static and explicitly labeled; real Dashboard displays real stored status and separate history links, no sample content.
+- Manifest/lock/workspace hashes remain 439e0dea24b2dcf563eee496eab5b43bdb8a0bc0 / d059f181c986840979dc1ed111ade4117056e4e2 / c6790699fab1d7a71ffdeebfce93304dacbd26f5. Runner scope [], Vite stopped, port closed. Temp results/logs/screenshots and ignored Vite cache were expected. API HEAD a0b19ef unchanged, original package.json/yarn.lock edits/index preserved; frontend index preserved. No env reads, deps, new API routes, live data edits, push or deployment.
+- `f8a0b2681cf142e37fe4bdc24e05abc41bb122a9` adds concise final evidence and canonical feature link to the guide. Structural readback/diff check passed; passive docs have no meaningful RED/new native source review and unchanged source suites were not redundantly rerun.
+- No current failing required check. Earlier fixture/timing issues, request-capture race and model transport failure are recorded and resolved without inventing evidence. Native ASSESS remains unassessable due untracked indexes, not a passed check; approved exact acknowledgements stand and independent full verification satisfies fallback. L1 stale-login-lock warnings remain separate nonblocking follow-ups.
+- Pending: real Google/GSI/backend login/logout and provider-widget appearance, human visual acceptance, live Mongo/index/concurrency and generated Nest build/production. Browser GSI/API are synthetic; API tests were not rerun for this frontend-only request, prior API results are not claimed fresh.
+
+## Progress
+3/3 closed. Landing modal, home logout, reference-style real rows and local interactive illustration implemented. Next human action: reload and validate real Google sign-in, return to landing on logout, and demo checks. No automatic product expansion. Canonical file: frontend/odd/tasks/landing-login-and-demo.md; mirror: odd/landing-login-and-demo/tasks, project habit-tracker.
